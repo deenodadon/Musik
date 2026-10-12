@@ -54,7 +54,7 @@ class State:
             return None
         if finished and self.repeat and self.repeat_one and self.current:
             return self.current
-        if finished and self.shuffle and direction > 0 and len(self.queue) > 1:
+        if self.shuffle and direction > 0 and len(self.queue) > 1:
             self.index = random.choice([i for i in range(len(self.queue)) if i != self.index])
         else:
             target = self.index + direction

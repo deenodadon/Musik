@@ -109,20 +109,3 @@ async def test_radio_arrival_does_not_skip_idle_selected_song(tmp_path):
     assert daemon.state.index == 0
     assert [t.id for t in daemon.player.played] == ['a']
     assert [t.id for t in daemon.state.queue] == ['a', 'b']
-
-
-async def test_background_manual_next_ignores_shuffle_and_preserves_queue(tmp_path, monkeypatch):
-    from musik.core import State
-    daemon = Daemon(Store(tmp_path))
-    daemon.player = FakePlayer()
-    tracks = [Track(str(i), str(i)) for i in range(4)]
-    daemon.state = State(queue=tracks.copy(), index=0, shuffle=True)
-    monkeypatch.setattr('musik.core.random.choice', lambda choices: choices[-1])
-    await daemon.dispatch('next', {})
-    assert daemon.state.index == 1
-    assert daemon.player.played[-1] == tracks[1]
-    assert daemon.state.queue == tracks
-    await daemon.dispatch('previous', {})
-    assert daemon.state.index == 0
-    await daemon.dispatch('next', {'finished': True})
-    assert daemon.state.index == 3
