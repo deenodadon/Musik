@@ -53,7 +53,7 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 
 For YouTube streams rejected with HTTP 403, run `musik setup-playback` once, then `musik stop` and reopen Musik. Installers attempt this setup automatically.
 
-The playback indicator shows missing requirements, restart needs, stream failures, or **setup ready**. Setup readiness does not guarantee YouTube will accept every stream.
+The playback indicator shows Ready, Loading, Playing, Paused, or Failed. Technical setup details are available through `musik doctor`.
 
 Playback troubleshooting: run `musik doctor` and share its output. It reports versions, session readiness, and audio-format availability without printing credentials.
 

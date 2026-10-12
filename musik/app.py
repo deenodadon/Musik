@@ -5,7 +5,6 @@ APP_VERSION = version("musik-tui")
 from functools import partial
 import asyncio
 from pathlib import Path
-import shutil
 
 from rich.text import Text
 from textual import on
@@ -402,20 +401,16 @@ class Musik(App):
             self.status(str(exc))
 
     def refresh_readiness(self):
-        from .playback_setup import helper_ready
         if not self.ready:
-            text = "Playback: player unavailable — check the error below"
-        elif self.background and getattr(self.player, "engine_version", None) != APP_VERSION:
-            text = "Playback: restart needed — run musik stop, then musik"
+            text = "Playback: unavailable — check the error below"
+        elif not self.player.idle and (self.player.paused or self.player.position > 0):
+            text = "Playback: paused" if self.player.paused else "Playback: playing"
         elif getattr(self.player, "failure_detail", None):
-            text = "Playback: stream failed — run musik doctor"
-        elif not any(shutil.which(runtime) for runtime in ("node", "deno", "bun")):
-            text = "Playback: local audio ready; YouTube needs Node.js 22+ — rerun the installer"
-        elif not helper_ready():
-            text = "Playback: player ready; YouTube token helper missing — run musik setup-playback"
+            text = "Playback: failed — run musik doctor"
+        elif str(getattr(self.player, "message", "")).startswith("Loading"):
+            text = "Playback: loading…"
         else:
-            state = "paused" if self.player.paused and not self.player.idle else "playing" if not self.player.idle and self.player.position > 0 else "setup ready"
-            text = f"Playback: {state} · player ready · JavaScript ready · token helper ready"
+            text = "Playback: ready"
         for widget in self.query("#playback-ready"):
             widget.update(text)
 

@@ -207,25 +207,20 @@ async def test_escape_focus_and_seek_shortcuts_from_search_menu_and_tracks(tmp_p
         assert player.commands == [('seek', 10, 'relative'), ('seek', -10, 'relative')] * 3
 
 
-async def test_readiness_indicator_reports_missing_helper_ready_and_stream_failure(tmp_path, monkeypatch):
-    from musik import playback_setup
-    import shutil
-    monkeypatch.setattr(shutil, 'which', lambda name: '/node' if name == 'node' else None)
-    helper = {'ready': False}
-    monkeypatch.setattr(playback_setup, 'helper_ready', lambda: helper['ready'])
+async def test_playback_indicator_hides_setup_details_and_prioritizes_playing_audio(tmp_path):
     player = FakePlayer()
     app = Musik(store=Store(tmp_path), service=FakeService(), player=player)
     async with app.run_test(size=(120, 45)) as pilot:
         app.refresh_readiness()
         widget = app.query_one('#playback-ready', Static)
-        assert 'musik setup-playback' in str(widget.content)
-        helper['ready'] = True
+        assert str(widget.content) == 'Playback: ready'
+        player.failure_detail = 'old HTTP 403'
+        player.position = 2
         app.refresh_readiness()
-        assert 'setup ready' in str(widget.content)
-        player.failure_detail = 'HTTP 403'
+        assert str(widget.content) == 'Playback: playing'
+        player.paused = True
         app.refresh_readiness()
-        assert 'stream failed' in str(widget.content)
-        player.failure_detail = None
-        monkeypatch.setattr(shutil, 'which', lambda name: None)
+        assert str(widget.content) == 'Playback: paused'
+        player.idle = True
         app.refresh_readiness()
-        assert 'needs Node.js' in str(widget.content)
+        assert 'failed' in str(widget.content)

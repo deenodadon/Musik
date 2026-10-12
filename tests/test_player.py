@@ -32,6 +32,12 @@ async def test_real_mpv_playback_controls_and_eof(tmp_path):
         assert player.position > 0
         assert await player.command("get_property", "volume") == 45
         assert await player.command("get_property", "speed") == 1.25
+        await player.command("seek", 1, "absolute")
+        await asyncio.sleep(.12)
+        resume = await player.command("get_property", "time-pos")
+        await player.play(Track(str(path), "Tone", source="local"), state, retry_stream=True)
+        await asyncio.sleep(.12)
+        assert await player.command("get_property", "time-pos") >= resume - .1
         await player.command("set_property", "pause", True)
         assert await player.command("get_property", "pause") is True
         await player.command("seek", 1, "absolute")
@@ -44,7 +50,7 @@ async def test_real_mpv_playback_controls_and_eof(tmp_path):
             while True:
                 event = await player.events.get()
                 if event.get("reason") == "eof":
-                    assert event["_musik_generation"] == player.play_generation == 1
+                    assert event["_musik_generation"] == player.play_generation == 2
                     break
                 assert event.get("reason") != "error"
     finally:
@@ -170,3 +176,44 @@ def test_expired_stream_url_is_not_cached(tmp_path):
     player = Player(store=Store(tmp_path))
     player.cache_audio('key', {'url': 'https://example.org/audio?expire=1'})
     assert not player.audio_cache
+
+
+async def test_alternate_stream_starts_at_existing_position(tmp_path, monkeypatch):
+    from musik import stream
+    from musik.core import Store
+    monkeypatch.setattr(stream, 'resolve_audio', lambda *a, **k: {'url': 'https://example.org/hls', 'duration': 200})
+    player = Player(store=Store(tmp_path))
+    player.position = 2.5
+    commands = []
+    async def command(*args):
+        commands.append(args)
+    monkeypatch.setattr(player, 'command', command)
+    await player.play(Track('song', 'Song'), State(), retry_stream=True)
+    assert ('loadfile', 'https://example.org/hls', 'replace', -1, {'start': '2.5'}) in commands
+    player.update_position('audio-pts', 90000)
+    assert player.position == 2.5
+    player.update_position('audio-pts', 90001)
+    assert player.position == 3.5
+
+
+async def test_late_error_from_replaced_entry_does_not_poison_new_stream():
+    import json
+    player = Player()
+    player.play_generation = 1
+    player.reader = asyncio.StreamReader()
+    player.reader.feed_data((json.dumps({'event': 'start-file', 'playlist_entry_id': 10}) + '\n').encode())
+    # Feed the first start separately to capture its original generation.
+    task = asyncio.create_task(player._read())
+    await asyncio.sleep(0)
+    player.play_generation = 2
+    for message in [
+        {'event': 'start-file', 'playlist_entry_id': 11},
+        {'event': 'file-loaded'},
+        {'event': 'end-file', 'playlist_entry_id': 10, 'reason': 'error'},
+    ]:
+        player.reader.feed_data((json.dumps(message) + '\n').encode())
+    player.reader.feed_eof()
+    await task
+    assert player.failure_detail is None
+    events = [await player.events.get(), await player.events.get()]
+    assert events[-1]['_musik_generation'] == 1

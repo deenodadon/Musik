@@ -307,7 +307,14 @@ class Daemon:
     async def monitor(self):
         while True:
             event = await self.player.events.get()
-            if event.get("reason") == "eof":
+            if event.get("event") == "file-loaded":
+                async with self.lock:
+                    expected = event.get("_musik_generation")
+                    if expected is None or expected == getattr(self.player, "play_generation", expected):
+                        if self.state.current:
+                            self.player.failure_detail = None
+                            self.message = f"Playing {self.state.current.title}"
+            elif event.get("reason") == "eof":
                 await self.dispatch("next", {"finished": True, "generation": event.get("_musik_generation")})
             elif event.get("reason") == "error":
                 async with self.lock:
@@ -319,12 +326,14 @@ class Daemon:
                     if ("HTTP 403" in detail and track and track.source != "local"
                             and not getattr(self.player, "stream_retry_used", False)):
                         self.player.stream_retry_used = True
-                        self.message = "Refreshing audio link and trying an alternate format…"
+                        self.player.failure_detail = None
+                        self.message = f"Loading {track.title}…"
                         try:
                             await self.player.play(track, self.state, retry_stream=True)
-                            self.message = f"Playing {track.title} · alternate audio stream"
+                            self.message = f"Playing {track.title}"
                         except Exception:
-                            self.message = "YouTube rejected the audio stream, and no working alternate format was found. Run musik doctor."
+                            self.player.failure_detail = "YouTube rejected both audio streams. Run musik doctor."
+                            self.message = self.player.failure_detail
                     else:
                         self.message = detail
 

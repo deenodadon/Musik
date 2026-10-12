@@ -53,6 +53,9 @@ class Player:
         self.events = asyncio.Queue()
         self.play_generation = 0
         self.active_generation = 0
+        self.entry_generations = {}
+        self.online_stream = False
+        self.resume_offset = 0.0
         self.position = 0.0
         self.duration = 0.0
         self.track_duration = None
@@ -124,7 +127,7 @@ class Player:
                 value -= start
             else:
                 origin = self.timestamp_origins.setdefault(source, value)
-                value -= origin
+                value = value - origin + self.resume_offset
         self.position = max(0.0, min(value, duration) if duration > 0 else value)
 
     async def _read(self):
@@ -156,14 +159,22 @@ class Player:
                 elif message.get("event") == "file-loaded":
                     self.failure_detail = None
                     self.pending_failure = None
+                    await self.events.put({"event": "file-loaded", "_musik_generation": self.active_generation})
                 elif message.get("event") == "start-file":
                     self.active_generation = self.play_generation
+                    entry = message.get("playlist_entry_id")
+                    if entry is not None:
+                        self.entry_generations[entry] = self.active_generation
+                        if len(self.entry_generations) > 16:
+                            self.entry_generations.pop(next(iter(self.entry_generations)))
                 elif message.get("event") == "end-file":
-                    message["_musik_generation"] = self.active_generation
+                    ending_generation = self.entry_generations.pop(message.get("playlist_entry_id"), self.active_generation)
+                    message["_musik_generation"] = ending_generation
                     if message.get("reason") == "error":
                         detail = self.pending_failure or self.failure_detail or "mpv could not open this audio stream. Run musik doctor for diagnostics."
-                        if self.active_generation == self.play_generation:
-                            self.failure_detail = detail
+                        if ending_generation == self.play_generation:
+                            recoverable = "HTTP 403" in detail and self.online_stream and not self.stream_retry_used
+                            self.failure_detail = None if recoverable else detail
                         message["_musik_error"] = detail
                     await self.events.put(message)
         finally:
@@ -215,8 +226,12 @@ class Player:
             self.audio_cache.popitem(last=False)
 
     async def play(self, track: Track, state: State, *, retry_stream=False):
+        resume = self.position if retry_stream else 0.0
+        self.resume_offset = resume
+        self.online_stream = track.source != "local"
         self.play_generation += 1
-        self.position = self.duration = 0.0
+        self.position = resume
+        self.duration = 0.0
         self.track_duration = None
         self.timestamp_origins.clear()
         self.demuxer_start = None
@@ -259,7 +274,10 @@ class Player:
         await self.settings(state)
         self.failure_detail = None
         self.pending_failure = None
-        await self.command("loadfile", url, "replace")
+        if resume > 0:
+            await self.command("loadfile", url, "replace", -1, {"start": str(resume)})
+        else:
+            await self.command("loadfile", url, "replace")
         await self.command("set_property", "pause", False)
 
     async def settings(self, state: State):
