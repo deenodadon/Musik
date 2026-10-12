@@ -40,7 +40,7 @@ class BrowserTable(DataTable):
 
 class Musik(App):
     AUTO_FOCUS = "#search"
-    TITLE = "Musik"
+    TITLE = f"Musik v{APP_VERSION}"
     SUB_TITLE = "Music lives in your terminal"
     CSS = """
     Screen { background: #10151f; }
@@ -124,7 +124,7 @@ class Musik(App):
         yield Static("Nothing playing", id="now", markup=False)
         yield Static("Playback: checking…", id="playback-ready", markup=False)
         yield Static("Ready to browse", id="status", markup=False)
-        yield Static("", id="update", markup=False)
+        yield Static(f"App v{APP_VERSION}", id="update", markup=False)
         yield Footer()
 
     async def on_mount(self):
@@ -422,6 +422,11 @@ class Musik(App):
     async def tick(self):
         for widget in self.query("#update"):
             message = read_status(self.store).get("message", "")
+            versions = f"App v{APP_VERSION}"
+            if self.background:
+                engine = getattr(self.player, "engine_version", None)
+                versions += f" · Player v{engine}" if engine else " · Player version unknown"
+            message = versions + (" · " + message if message else "")
             if self.background and self.ready and getattr(self.player, "engine_version", None) != APP_VERSION:
                 message += " · Older background player: run musik stop, then musik"
             widget.update(message)
