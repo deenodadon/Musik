@@ -17,6 +17,16 @@ from dataclasses import asdict
 from .service import MusicService, cached_playlists, explain_library_error
 
 
+class BrowserTable(DataTable):
+    """Activate a row on one click, as a music browser does."""
+    async def _on_click(self, event):
+        previous = self.cursor_coordinate
+        await super()._on_click(event)
+        row = event.style.meta.get("row")
+        if isinstance(row, int) and 0 <= row < self.row_count and self.cursor_coordinate != previous:
+            self._post_selected_message()
+
+
 class Musik(App):
     TITLE = "Musik"
     SUB_TITLE = "Music lives in your terminal"
@@ -41,7 +51,8 @@ class Musik(App):
         ("a", "enqueue", "Queue +"), ("f", "favorite", "Favorite"),
         ("1", "view('results')", "Results"), ("2", "view('queue')", "Queue"),
         ("5", "playlists", "Playlists"),
-        ("ctrl+enter", "play_playlist", "Play playlist"),
+        ("ctrl+enter", "play_playlist", "Play collection"),
+        ("backspace", "back", "Back"),
         Binding("o", "play_playlist", "Play playlist", show=False),
         ("3", "view('favorites')", "Favorites"), ("4", "view('history')", "History"),
         ("delete", "remove", "Remove"), ("shift+up", "move(-1)", "Move up"),
@@ -70,14 +81,16 @@ class Musik(App):
         self.ready = False
         self.play_lock = asyncio.Lock()
         self.generation = 0
+        self.catalog_title = "RESULTS"
+        self.browse_history = []
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Input(placeholder="Search YouTube Music, or /local /path/to/music", id="search")
         with Horizontal(id="body"):
             with Vertical(id="browse"):
-                yield Static("RESULTS", id="heading", classes="label")
-                yield DataTable(id="tracks", cursor_type="row")
+                yield Static("RESULTS", id="heading", classes="label", markup=False)
+                yield BrowserTable(id="tracks", cursor_type="row")
             with Vertical(id="side"):
                 yield Static("LYRICS", classes="label")
                 yield Static("Select a song and press L.\n\n1 Results · 2 Queue\n3 Favorites · 4 History\nA Add to queue · Enter Play\nS Shuffle · R Repeat\nE Equalizer · V Speed", id="lyrics", markup=False)
@@ -88,7 +101,7 @@ class Musik(App):
         yield Footer()
 
     async def on_mount(self):
-        self.query_one(DataTable).add_columns("Title", "Artist", "Source")
+        self.query_one(DataTable).add_columns("Title", "Artist", "Type")
         self.refresh_tracks()
         self.set_interval(0.25, self.tick)
         try:
@@ -124,8 +137,10 @@ class Musik(App):
         table = tables[0]
         table.clear()
         for track in self.tracks:
-            table.add_row(track.title, track.artist, track.source)
-        self.query_one("#heading", Static).update(f"{self.view.upper()} · {len(self.tracks)} songs")
+            kind = {"youtube": "Song", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
+            table.add_row(track.title, track.artist, kind)
+        heading = self.catalog_title if self.view == "results" else self.view.upper()
+        self.query_one("#heading", Static).update(f"{heading} · {len(self.tracks)} items")
 
     def persist(self):
         if self.background:
@@ -152,6 +167,8 @@ class Musik(App):
                 if generation != self.generation:
                     return
                 self.playlist_contents = []
+                self.catalog_title = "RESULTS"
+                self.browse_history = []
                 self.results = results
                 self.action_view("results")
                 self.status(f"Found {len(results)} tracks")
@@ -166,8 +183,8 @@ class Musik(App):
         track = self.selected()
         if track is None:
             return
-        if track.source == "playlist":
-            self.run_worker(self.open_playlist(track), group="playlist", exclusive=True)
+        if track.source in ("artist", "album", "playlist"):
+            self.run_worker(self.open_catalog(track), group="catalog", exclusive=True)
             return
         if self.background:
             args = {"index": event.cursor_row} if self.view == "queue" else {"track": asdict(track)}
@@ -182,16 +199,42 @@ class Musik(App):
         self.persist()
         self.schedule_play(track)
 
-    async def open_playlist(self, track):
-        self.playlist_contents = []
-        self.status("Loading playlist…")
+    def remember_page(self):
+        self.browse_history.append((self.view, self.results.copy(), self.catalog_title,
+                                    self.playlist_contents.copy(), self.query_one(DataTable).cursor_row))
+
+    async def open_catalog(self, track):
+        self.generation += 1
+        generation = self.generation
+        self.status(f"Loading {track.title}…")
         try:
-            self.playlist_contents = await asyncio.to_thread(self.service.playlist_tracks, track)
-            self.results = self.playlist_contents.copy()
+            method = getattr(self.service, {"artist": "artist_catalog", "album": "album_tracks",
+                                           "playlist": "playlist_tracks"}[track.source])
+            rows = await asyncio.to_thread(method, track)
+            if generation != self.generation or not list(self.query("#heading")):
+                return False
+            self.remember_page()
+            self.results = rows
+            self.catalog_title = track.title
+            self.playlist_contents = rows.copy() if track.source != "artist" else []
             self.action_view("results")
-            self.status(f"{track.title} · Ctrl+Enter or O plays the whole playlist" if self.playlist_contents else "This playlist has no available tracks for your account.")
+            self.status("Enter opens or plays · O plays this collection · Backspace goes back" if rows else "No available releases or tracks found")
+            return True
         except Exception as exc:
-            self.status(explain_library_error(exc))
+            if generation == self.generation:
+                self.status(f"Could not open {track.source}: {explain_library_error(exc)}")
+            return False
+
+    async def open_playlist(self, track):
+        return await self.open_catalog(track)
+
+    def action_back(self):
+        if not self.browse_history:
+            return
+        self.generation += 1
+        view, self.results, self.catalog_title, self.playlist_contents, row = self.browse_history.pop()
+        self.action_view(view)
+        self.query_one(DataTable).move_cursor(row=row)
 
     def action_playlists(self):
         self.action_view("playlists")
@@ -207,12 +250,19 @@ class Musik(App):
 
     async def action_play_playlist(self):
         if self.view == "playlists" and (track := self.selected()):
-            await self.open_playlist(track)
+            if not await self.open_playlist(track):
+                return
         if not self.playlist_contents:
-            self.status("Open a playlist with 5 and Enter first")
+            self.status("Open an album or playlist with Enter first")
             return
         if self.background:
             await self.remote("playlist", tracks=[asdict(t) for t in self.playlist_contents])
+            self.action_view("queue")
+        else:
+            self.state.queue = self.playlist_contents.copy()
+            self.state.index = 0
+            self.persist()
+            self.schedule_play(self.state.current)
             self.action_view("queue")
 
     def schedule_play(self, track):
@@ -257,7 +307,8 @@ class Musik(App):
                 self.state = self.player.state
                 if self.tracks != previous:
                     self.refresh_tracks()
-                self.status(self.player.message)
+                if self.view == "queue":
+                    self.status(self.player.message)
             except (OSError, RuntimeError) as exc:
                 self.status(f"Background service stopped: {exc}")
                 self.ready = False
@@ -296,8 +347,8 @@ class Musik(App):
 
     async def action_enqueue(self):
         if track := self.selected():
-            if track.source == "playlist":
-                self.status("Open the playlist with Enter first")
+            if track.source in ("artist", "album", "playlist"):
+                self.status("Open this artist, album or playlist with Enter first")
                 return
             if self.background:
                 await self.remote("enqueue", track=asdict(track))
@@ -309,8 +360,8 @@ class Musik(App):
 
     async def action_favorite(self):
         if track := self.selected():
-            if track.source == "playlist":
-                self.status("Open the playlist with Enter first")
+            if track.source in ("artist", "album", "playlist"):
+                self.status("Open this artist, album or playlist with Enter first")
                 return
             if self.background:
                 await self.remote("favorite", track=asdict(track))

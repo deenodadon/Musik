@@ -80,8 +80,57 @@ class MusicService:
         return [track for item in (result.get("tracks") or []) if (track := song_track(item))]
 
     def search(self, query):
-        return [track for item in self.api.search(query, filter="songs", limit=30)
-                if (track := song_track(item))]
+        results = []
+        for item in self.api.search(query, limit=40):
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("resultType")
+            if kind == "artist" and item.get("browseId"):
+                results.append(Track(item["browseId"], item.get("artist") or item.get("title") or "Unknown artist", "Artist", "artist"))
+            elif kind == "album" and item.get("browseId"):
+                names = ", ".join(a["name"] for a in (item.get("artists") or []) if isinstance(a, dict) and isinstance(a.get("name"), str))
+                results.append(Track(item["browseId"], item.get("title") or "Untitled album", names or "Unknown artist", "album"))
+            elif track := song_track(item):
+                results.append(track)
+        return results
+
+    def artist_catalog(self, artist):
+        data = self.api.get_artist(artist.id)
+        name = data.get("name") or artist.title
+        rows = []
+        songs = data.get("songs") or {}
+        for item in songs.get("results") or []:
+            if track := song_track(item):
+                if track.artist == "Unknown artist":
+                    track = Track(track.id, track.title, name)
+                rows.append(track)
+        if songs.get("browseId"):
+            rows.append(Track(songs["browseId"], "All songs", name, "playlist"))
+        seen = set()
+        for section in ("albums", "singles"):
+            content = data.get(section) or {}
+            releases = content.get("results") or []
+            if content.get("browseId") and content.get("params"):
+                releases = self.api.get_artist_albums(content["browseId"], content["params"], limit=None)
+            for item in releases:
+                if not isinstance(item, dict) or not item.get("browseId") or item["browseId"] in seen:
+                    continue
+                seen.add(item["browseId"])
+                label = " · ".join(str(value) for value in (name, item.get("year"), "Single" if section == "singles" else None) if value)
+                rows.append(Track(item["browseId"], item.get("title") or "Untitled album", label, "album"))
+        return rows
+
+    def album_tracks(self, album):
+        data = self.api.get_album(album.id)
+        artists = data.get("artists") or []
+        name = ", ".join(a["name"] for a in artists if isinstance(a, dict) and isinstance(a.get("name"), str)) or album.artist
+        tracks = []
+        for item in data.get("tracks") or []:
+            if track := song_track(item):
+                if track.artist == "Unknown artist":
+                    track = Track(track.id, track.title, name)
+                tracks.append(track)
+        return tracks
 
     def radio(self, track, limit=25):
         if track.source == "local":

@@ -1,6 +1,6 @@
 # Musik
 
-A terminal YouTube Music and local audio player with visualizer bars, automatic radio queues, playlists, and background playback. Inspired by [Pear Desktop](https://github.com/pear-devs/pear-desktop) and [Limusic](https://github.com/SimoHypers/limusic).
+A terminal YouTube Music and local audio player with visualizer bars, artist and album browsing, automatic radio queues, playlists, and background playback. Inspired by [Pear Desktop](https://github.com/pear-devs/pear-desktop) and [Limusic](https://github.com/SimoHypers/limusic).
 
 ## Windows
 
@@ -43,15 +43,18 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 
 | Key | Action |
 | --- | --- |
-| `/`, Enter | Search, then play a selected song and its radio queue |
+| `/`, Enter | Search songs/artists/albums; select an artist or album to browse |
+| Backspace | Return to the previous artist/album page |
 | Ctrl+P | Pause/resume, including while searching |
 | Ctrl+Up / Ctrl+Down | Volume up/down |
 | `n` / `p` | Next/previous |
 | `1`–`5` | Results, queue, favorites, history, playlists |
-| Enter, then `o` | Open a playlist, then play it in order |
+| Enter, then `o` | Open an album or playlist, then play it in order |
 | `a` / `f` / `l` | Add to queue / favorite / lyrics |
 | `s` / `r` / `e` / `v` | Shuffle / repeat / equalizer / speed |
 | Esc / `q` | Focus track list / detach |
+
+Artist pages show top songs, an all-songs collection when available, and albums/singles. Select a song to start radio, or open an album and press `o` to play it in order.
 
 Sign-in uses Brave by default; Chrome, Chromium and Edge can be selected with `--browser`. It grants only access your Google account is eligible for. YouTube may restrict streaming even when signed in.
 
