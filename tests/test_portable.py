@@ -52,4 +52,4 @@ async def test_older_background_player_cannot_silently_downgrade_song_repeat(tmp
     assert client.supports_repeat_song is False
     with pytest.raises(RuntimeError, match='musik stop'):
         await client.settings(State(repeat=True, repeat_one=True))
-    assert client.state.repeat_mode == 'Queue'
+    assert client.state.repeat_mode == 'Playlist'

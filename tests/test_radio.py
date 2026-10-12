@@ -20,7 +20,7 @@ def test_radio_api_filters_seed_and_duplicates():
     assert service.radio(Track("seed", "Seed")) == [Track("other", "Related", "Similar artist")]
 
 
-async def test_each_selection_reseeds_and_automatic_next_does_not(tmp_path):
+async def test_new_search_seeds_radio_but_queue_selection_preserves_it(tmp_path):
     daemon = Daemon(Store(tmp_path))
     daemon.player = FakePlayer()
 
@@ -36,8 +36,9 @@ async def test_each_selection_reseeds_and_automatic_next_does_not(tmp_path):
     assert daemon.state.current.id == "a-related"
     assert len(daemon.state.queue) == 2
     await daemon.dispatch("play", {"index": 1})
-    await daemon.radio_task
-    assert [t.id for t in daemon.state.queue] == ["a-related", "a-related-related"]
+    assert daemon.state.index == 1
+    assert [t.id for t in daemon.state.queue] == ["a", "a-related"]
+    assert daemon.player.played[-1].id == "a-related"
 
 
 async def test_stale_radio_and_failure_leave_new_selection_intact(tmp_path):
@@ -80,3 +81,31 @@ async def test_background_repeat_song_on_eof_and_manual_next(tmp_path):
     finally:
         monitor.cancel()
         await asyncio.gather(monitor, return_exceptions=True)
+
+
+async def test_queue_selection_keeps_manual_tracks_and_next_order(tmp_path):
+    from musik.core import State
+    daemon = Daemon(Store(tmp_path))
+    daemon.player = FakePlayer()
+    daemon.state = State(queue=[Track('a', 'A'), Track('b', 'B'), Track('c', 'C')], index=0)
+    await daemon.dispatch('play', {'index': 1})
+    assert [t.id for t in daemon.state.queue] == ['a', 'b', 'c']
+    assert daemon.radio_task is None
+    await daemon.dispatch('next', {'finished': True})
+    assert daemon.state.index == 2
+    assert daemon.player.played[-1] == daemon.state.queue[2]
+
+
+async def test_radio_arrival_does_not_skip_idle_selected_song(tmp_path):
+    daemon = Daemon(Store(tmp_path))
+    daemon.player = FakePlayer()
+    daemon.player.idle = True
+    class Service:
+        def radio(self, track):
+            return [Track('b', 'B')]
+    daemon.service = Service()
+    await daemon.dispatch('play', {'track': {'id': 'a', 'title': 'A'}})
+    await daemon.radio_task
+    assert daemon.state.index == 0
+    assert [t.id for t in daemon.player.played] == ['a']
+    assert [t.id for t in daemon.state.queue] == ['a', 'b']

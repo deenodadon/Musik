@@ -52,7 +52,7 @@ def test_repeat_song_finished_but_manual_skip_advances_and_modes_persist(tmp_pat
     assert state.advance().id == 'b'
     state.shuffle = False
     state.cycle_repeat()
-    assert state.repeat_mode == 'Queue'
+    assert state.repeat_mode == 'Playlist'
     assert state.advance(finished=True).id == 'a'
     state.cycle_repeat()
     assert state.repeat_mode == 'Off'

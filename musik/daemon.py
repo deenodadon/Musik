@@ -131,6 +131,7 @@ class Daemon:
         self.radio_task = None
         self.radio_generation = 0
         self.token = None
+        self.waiting_for_radio = False
 
     def snapshot(self):
         p = self.player
@@ -154,6 +155,7 @@ class Daemon:
         generation = self.radio_generation
         if self.radio_task:
             self.radio_task.cancel()
+        self.waiting_for_radio = False
         self.state.queue = [track]
         self.state.index = 0
         self.store.save(self.state)
@@ -173,8 +175,10 @@ class Daemon:
                         seen.add(identity)
                 self.store.save(self.state)
                 self.message = f"Radio ready · {len(self.state.queue)} songs" if tracks else "No related songs found"
-                if self.player.idle and not self.player.paused and self.state.index == 0 and len(self.state.queue) > 1:
-                    await self.play(self.state.advance())
+                if self.waiting_for_radio:
+                    self.waiting_for_radio = False
+                    if next_track := self.state.advance(finished=True):
+                        await self.play(next_track)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -194,11 +198,14 @@ class Daemon:
                     if not 0 <= index < len(self.state.queue):
                         raise ValueError("Queue entry no longer exists")
                     track = self.state.queue[index]
+                    self.state.index = index
+                    self.waiting_for_radio = False
                 else:
                     track = Track(**args["track"])
-                self.seed_radio(track)
+                    self.seed_radio(track)
                 await self.play(track)
             elif operation == "playlist":
+                self.waiting_for_radio = False
                 tracks = [Track(**item) for item in args["tracks"]]
                 if not tracks or any(t.source not in ("youtube", "video", "local") for t in tracks):
                     raise ValueError("Playlist has no playable tracks")
@@ -221,8 +228,10 @@ class Daemon:
             elif operation in ("next", "previous"):
                 track = self.state.advance(1 if operation == "next" else -1, finished=bool(args.get("finished", False)))
                 if track:
+                    self.waiting_for_radio = False
                     await self.play(track)
                 else:
+                    self.waiting_for_radio = bool(args.get("finished") and self.radio_task and not self.radio_task.done())
                     self.message = "End of queue"
             elif operation == "remove":
                 index = int(args["index"])

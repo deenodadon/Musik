@@ -3,7 +3,6 @@ from functools import partial
 import asyncio
 from pathlib import Path
 
-from textual.screen import ModalScreen
 from textual import on
 from textual.binding import Binding
 from textual.app import App, ComposeResult
@@ -28,29 +27,6 @@ class BrowserTable(DataTable):
         row = event.style.meta.get("row")
         if isinstance(row, int) and 0 <= row < self.row_count and self.cursor_coordinate != previous:
             self._post_selected_message()
-
-
-class RepeatMenu(ModalScreen[str]):
-    DEFAULT_CSS = """
-    RepeatMenu { align: center middle; background: #00000088; }
-    #repeat-menu { width: 44; height: auto; padding: 1 2; border: round #66d9bb; background: #10151f; }
-    #repeat-menu Button { width: 1fr; margin-top: 1; }
-    """
-    BINDINGS = [("escape", "cancel", "Cancel")]
-
-    def compose(self):
-        with Vertical(id="repeat-menu"):
-            yield Static("Choose repeat mode", markup=False)
-            yield Button("Off", id="repeat-off")
-            yield Button("Song — repeat the current track", id="repeat-song")
-            yield Button("Queue — repeat the whole queue", id="repeat-queue")
-
-    @on(Button.Pressed)
-    def choose(self, event):
-        self.dismiss(event.button.id.removeprefix("repeat-"))
-
-    def action_cancel(self):
-        self.dismiss(None)
 
 
 class Musik(App):
@@ -409,12 +385,15 @@ class Musik(App):
             try:
                 previous = self.tracks.copy()
                 previous_index = self.state.index
+                previous_queue = self.state.queue.copy()
                 await self.player.poll()
                 if not list(self.query("#status")):
                     return
                 self.state = self.player.state
-                if self.tracks != previous or self.state.index != previous_index:
+                if self.tracks != previous or self.state.index != previous_index or self.state.queue != previous_queue:
                     self.refresh_tracks()
+                    if self.view == "queue" and self.state.index != previous_index and self.state.current:
+                        self.query_one(DataTable).move_cursor(row=self.state.index)
                 if self.view == "queue":
                     self.status(self.player.message)
             except (OSError, RuntimeError) as exc:
@@ -548,8 +527,8 @@ class Musik(App):
         await self.apply_settings()
 
     @on(Button.Pressed, "#repeat-toggle")
-    def repeat_clicked(self):
-        self.push_screen(RepeatMenu(), self.set_repeat_mode)
+    async def repeat_clicked(self):
+        await self.action_repeat()
 
     async def set_repeat_mode(self, mode):
         if mode is None:
@@ -565,7 +544,7 @@ class Musik(App):
         self.status(f"Repeat: {self.state.repeat_mode}")
 
     async def action_repeat(self):
-        mode = {"Off": "song", "Song": "queue", "Queue": "off"}[self.state.repeat_mode]
+        mode = {"Off": "song", "Song": "queue", "Playlist": "off"}[self.state.repeat_mode]
         await self.set_repeat_mode(mode)
 
     async def action_remove(self):

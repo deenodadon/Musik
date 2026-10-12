@@ -152,11 +152,10 @@ async def test_repeat_button_cycles_song_queue_off(tmp_path):
     app = Musik(store=Store(tmp_path), service=FakeService(), player=FakePlayer())
     async with app.run_test(size=(120, 45)) as pilot:
         await pilot.click('#repeat-toggle')
-        await pilot.click('#repeat-song')
         await pilot.pause()
         assert app.state.repeat_mode == 'Song'
         assert str(app.query_one('#repeat-toggle', Button).label) == 'Repeat: Song'
         await pilot.press('escape', 'r')
-        assert app.state.repeat_mode == 'Queue'
+        assert app.state.repeat_mode == 'Playlist'
         await pilot.press('r')
         assert app.state.repeat_mode == 'Off'

@@ -42,11 +42,11 @@ class State:
 
     @property
     def repeat_mode(self):
-        return "Song" if self.repeat and self.repeat_one else "Queue" if self.repeat else "Off"
+        return "Song" if self.repeat and self.repeat_one else "Playlist" if self.repeat else "Off"
 
     def cycle_repeat(self):
         mode = self.repeat_mode
-        self.repeat = mode != "Queue"
+        self.repeat = mode != "Playlist"
         self.repeat_one = mode == "Off"
 
     def advance(self, direction: int = 1, *, finished: bool = False) -> Track | None:
