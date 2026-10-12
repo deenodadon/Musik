@@ -331,3 +331,36 @@ async def test_enter_in_plugin_settings_never_submits_a_music_search(tmp_path,mo
             await pilot.pause(.1)
             assert searches==[]
     finally:service.nuclear.close()
+
+
+@pytest.mark.skipif(not shutil.which('node'),reason='Node is required for plugin execution')
+async def test_closing_player_does_not_wait_for_background_plugin_http(tmp_path,monkeypatch):
+    import asyncio
+    import threading
+    store=plugin_store(tmp_path)
+    path=tmp_path/'plugins/test-provider/plugin.mjs'
+    path.write_text(path.read_text().replace("getStreamUrl: async id=>({url:'https://audio.example/'+id,durationMs:120000})", "getStreamUrl: async id=>{await api.Http.fetch('https://example.org/slow');return {url:'https://audio.example/'+id,durationMs:120000};}"))
+    service=MusicService(store)
+    player=Player(store=store)
+    entered,release=threading.Event(),threading.Event()
+    original=player.nuclear._callback
+    def callback(method,args):
+        if method=='http':
+            entered.set()
+            release.wait(4)
+            return {'status':200,'headers':{},'body':'ok'}
+        return original(method,args)
+    monkeypatch.setattr(player.nuclear,'_callback',callback)
+    preparation=None
+    try:
+        preparation=asyncio.create_task(player.prepare_audio(service.search('song')[0]))
+        assert await asyncio.to_thread(entered.wait,2)
+        async with asyncio.timeout(1.5):
+            await player.close()
+        assert player.nuclear.process is None
+    finally:
+        release.set()
+        if preparation:
+            await asyncio.gather(preparation,return_exceptions=True)
+        service.nuclear.close()
+        await player.close()

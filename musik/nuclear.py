@@ -277,15 +277,17 @@ class NuclearRuntime:
         threading.Thread(target=read, daemon=True).start()
 
     def _rpc(self, method, args):
+        process = self.process
+        messages = self.messages
         self.serial += 1
         request_id = self.serial
-        self.process.stdin.write(json.dumps({'id': request_id, 'method': method, 'args': args}) + '\n')
-        self.process.stdin.flush()
+        process.stdin.write(json.dumps({'id': request_id, 'method': method, 'args': args}) + '\n')
+        process.stdin.flush()
         import time
         deadline = time.monotonic() + 90
         while True:
             try:
-                message = self.messages.get(timeout=max(.01, deadline - time.monotonic()))
+                message = messages.get(timeout=max(.01, deadline - time.monotonic()))
             except queue.Empty:
                 self.close()
                 raise RuntimeError('Nuclear plugin timed out') from None
@@ -298,8 +300,10 @@ class NuclearRuntime:
                     reply = {'callbackResult': message['callback'], 'result': result}
                 except Exception as exc:
                     reply = {'callbackResult': message['callback'], 'error': f'{message["method"]} failed ({type(exc).__name__})'}
-                self.process.stdin.write(json.dumps(reply) + '\n')
-                self.process.stdin.flush()
+                if self.process is not process:
+                    raise RuntimeError('Nuclear plugin host was closed')
+                process.stdin.write(json.dumps(reply) + '\n')
+                process.stdin.flush()
             elif message.get('id') == request_id:
                 if message.get('error'):
                     raise RuntimeError(message['error'])
@@ -577,21 +581,31 @@ class NuclearRuntime:
 
     def close(self):
         atexit.unregister(self.close)
-        with self.lock:
+        acquired = self.lock.acquire(blocking=False)
+        try:
             process, self.process = self.process, None
             self.stamp = None
             if process:
                 if process.poll() is None:
                     try:
-                        process.stdin.write(json.dumps({'id':0,'method':'close'})+'\n')
-                        process.stdin.flush()
-                        process.wait(timeout=1)
+                        if acquired:
+                            process.stdin.write(json.dumps({'id':0,'method':'close'})+'\n')
+                            process.stdin.flush()
+                            process.wait(timeout=1)
+                        else:
+                            # Do not wait behind a speculative HTTP lookup when
+                            # the user stops music or closes the host.
+                            process.kill()
+                            process.wait(timeout=3)
                     except (OSError, subprocess.TimeoutExpired):
                         process.kill()
                         process.wait(timeout=3)
                 for handle in (process.stdin, process.stdout):
                     if handle:
                         handle.close()
+        finally:
+            if acquired:
+                self.lock.release()
 
 
 def nuclear_track(track):
