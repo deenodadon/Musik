@@ -37,3 +37,34 @@ def lock_exclusive(handle):
     else:
         import fcntl
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def windows_mpv_executable():
+    """Find WinGet/Inno's installation even when it does not modify PATH."""
+    from pathlib import Path
+    for variable in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA'):
+        root = os.environ.get(variable)
+        if not root:
+            continue
+        for folder in ('MPV Player', 'mpv', 'Programs/MPV Player', 'Programs/mpv'):
+            candidate = Path(root) / folder / 'mpv.exe'
+            if candidate.is_file():
+                return str(candidate)
+    try:
+        import winreg
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, r'Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe') as key:
+                    candidate = Path(winreg.QueryValueEx(key, None)[0].strip('"'))
+                    if candidate.is_file():
+                        return str(candidate)
+            except OSError:
+                continue
+    except ImportError:
+        pass
+    return None
+
+
+def mpv_executable():
+    import shutil
+    return os.environ.get('MUSIK_MPV') or shutil.which('mpv') or (windows_mpv_executable() if os.name == 'nt' else None)

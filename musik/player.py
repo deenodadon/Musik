@@ -5,13 +5,13 @@ import math
 import time
 from collections import OrderedDict
 import os
-import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
 from .core import State, Track, Store
 from .visualizer import rms_level
+from .platform import mpv_executable
 
 FILTERS = {
     "flat": "",
@@ -70,7 +70,7 @@ class Player:
         self.audio_cache = OrderedDict()
 
     async def start(self):
-        executable = os.environ.get("MUSIK_MPV") or shutil.which("mpv")
+        executable = mpv_executable()
         if not executable:
             raise RuntimeError("mpv is missing. Install mpv or set MUSIK_MPV to its executable.")
         self.temp = tempfile.TemporaryDirectory(prefix="musik-")

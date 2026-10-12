@@ -53,3 +53,24 @@ async def test_older_background_player_cannot_silently_downgrade_song_repeat(tmp
     with pytest.raises(RuntimeError, match='musik stop'):
         await client.settings(State(repeat=True, repeat_one=True))
     assert client.state.repeat_mode == 'Playlist'
+
+
+def test_windows_mpv_found_in_winget_folder_without_path(tmp_path, monkeypatch):
+    from musik.platform import windows_mpv_executable
+    root = tmp_path / 'Program Files'
+    executable = root / 'MPV Player/mpv.exe'
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b'fixture')
+    monkeypatch.setenv('PROGRAMFILES', str(root))
+    assert windows_mpv_executable() == str(executable)
+
+
+def test_windows_per_user_mpv_location(tmp_path, monkeypatch):
+    from musik.platform import windows_mpv_executable
+    executable = tmp_path / 'Programs/MPV Player/mpv.exe'
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b'fixture')
+    monkeypatch.setenv('PROGRAMFILES', str(tmp_path / 'empty'))
+    monkeypatch.setenv('PROGRAMFILES(X86)', str(tmp_path / 'empty-x86'))
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    assert windows_mpv_executable() == str(executable)

@@ -30,7 +30,29 @@ if (-not $SkipDependencies) {
 # See PATH changes from installers without making the user reopen PowerShell.
 $env:PATH = $env:PATH + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is missing from PATH.' }
-if (-not (Get-Command mpv -ErrorAction SilentlyContinue)) { throw 'mpv.exe is missing from PATH. Reopen PowerShell or add the mpv installation directory to PATH.' }
+$mpvCommand = Get-Command mpv -ErrorAction SilentlyContinue
+if (-not $mpvCommand) {
+    $mpvPath = $null
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+        if (-not $root) { continue }
+        foreach ($folder in @('MPV Player', 'mpv', 'Programs\MPV Player', 'Programs\mpv')) {
+            $candidate = Join-Path (Join-Path $root $folder) 'mpv.exe'
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $mpvPath = $candidate; break }
+        }
+        if ($mpvPath) { break }
+    }
+    if (-not $mpvPath) {
+        foreach ($key in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe')) {
+            if (Test-Path -LiteralPath $key) {
+                $candidate = ([string]((Get-Item -LiteralPath $key).GetValue(''))).Trim('"')
+                if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { $mpvPath = $candidate; break }
+            }
+        }
+    }
+    if (-not $mpvPath) { throw 'mpv installation was not found. Run winget install --exact --id shinchiro.mpv, then rerun this installer.' }
+    $env:PATH += ';' + (Split-Path -Parent $mpvPath)
+    Write-Host "Found mpv at $mpvPath"
+}
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 22+ is missing from PATH.' }
 $nodeMajor = & node -p 'process.versions.node.split(".")[0]'
 if ($LASTEXITCODE -ne 0 -or [int]$nodeMajor -lt 22) { throw 'Node.js 22+ is required. Upgrade Node.js, then rerun this installer.' }
