@@ -35,6 +35,9 @@ class CatalogAPI:
 def service(store):
     result = MusicService(store)
     result._api = CatalogAPI()
+    # Catalog navigation uses a fixture; do not wait on a real YouTube search.
+    # Video extraction and mixed-search behavior have their own test module.
+    result.search_videos = lambda query: []
     return result
 
 
