@@ -1,5 +1,7 @@
 from .core import Track, Store
 import json
+import re
+import unicodedata
 import os
 import tempfile
 from pathlib import Path
@@ -21,6 +23,17 @@ def song_track(item):
     names = [artist.get("name") for artist in (item.get("artists") or [])
              if isinstance(artist, dict) and isinstance(artist.get("name"), str)]
     return Track(item["videoId"], item.get("title") or "Untitled", ", ".join(names) or "Unknown artist")
+
+
+def normalized(value):
+    value = unicodedata.normalize("NFKD", str(value)).casefold()
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return " ".join(re.findall(r"[^\W_]+", value))
+
+
+def query_matches(query, value):
+    wanted = set(normalized(query).split())
+    return bool(wanted) and wanted.issubset(set(normalized(value).split()))
 
 
 def explain_library_error(error):
@@ -80,21 +93,60 @@ class MusicService:
         return [track for item in (result.get("tracks") or []) if (track := song_track(item))]
 
     def search(self, query):
-        results = []
-        for item in self.api.search(query, limit=40):
+        artists = []
+        for item in self.api.search(query, filter="artists", limit=20):
             if not isinstance(item, dict):
                 continue
-            kind = item.get("resultType")
-            if kind == "artist" and item.get("browseId"):
-                results.append(Track(item["browseId"], item.get("artist") or item.get("title") or "Unknown artist", "Artist", "artist"))
-            elif kind == "album" and item.get("browseId"):
-                names = ", ".join(a["name"] for a in (item.get("artists") or []) if isinstance(a, dict) and isinstance(a.get("name"), str))
-                results.append(Track(item["browseId"], item.get("title") or "Untitled album", names or "Unknown artist", "album"))
-            elif track := song_track(item):
-                results.append(track)
-        return results
+            name = item.get("artist") or item.get("title") or ""
+            if item.get("browseId") and query_matches(query, name):
+                artists.append(Track(item["browseId"], name, "Artist", "artist"))
+        exact = next((artist for artist in artists if normalized(artist.title) == normalized(query)), None)
+        if exact is not None:
+            # Use the artist's own release shelves, never a broad album query.
+            catalog = self.artist_catalog(exact, full_songs=True)
+            songs = [item for item in catalog if item.source == "youtube"]
+            albums = [item for item in catalog if item.source == "album"]
+            seen = {song.id for song in songs}
+            if len(songs) < 25:
+                for item in self.api.search(exact.title, filter="songs", limit=100):
+                    if not isinstance(item, dict):
+                        continue
+                    credited = [a for a in (item.get("artists") or []) if isinstance(a, dict)]
+                    matches = any(a.get("id") == exact.id or normalized(a.get("name", "")) == normalized(exact.title)
+                                  for a in credited)
+                    track = song_track(item)
+                    if matches and track and track.id not in seen:
+                        songs.append(track)
+                        seen.add(track.id)
+            # Smaller top-song shelves can omit released tracks; load official
+            # album tracks until the minimum is met or releases are exhausted.
+            for album in albums:
+                if len(songs) >= 25:
+                    break
+                for track in self.album_tracks(album):
+                    if track.id not in seen:
+                        songs.append(track)
+                        seen.add(track.id)
+            precise_artists = [artist for artist in artists if normalized(artist.title) == normalized(query)]
+            return [*precise_artists, *songs, *albums]
+        songs = []
+        seen = set()
+        for item in self.api.search(query, filter="songs", limit=100):
+            track = song_track(item)
+            if track and track.id not in seen and query_matches(query, f"{track.title} {track.artist}"):
+                songs.append(track)
+                seen.add(track.id)
+        albums = []
+        for item in self.api.search(query, filter="albums", limit=50):
+            if not isinstance(item, dict) or not item.get("browseId"):
+                continue
+            names = ", ".join(a["name"] for a in (item.get("artists") or [])
+                              if isinstance(a, dict) and isinstance(a.get("name"), str))
+            if query_matches(query, f"{item.get('title', '')} {names}"):
+                albums.append(Track(item["browseId"], item.get("title") or "Untitled album", names or "Unknown artist", "album"))
+        return [*songs, *albums, *artists]
 
-    def artist_catalog(self, artist):
+    def artist_catalog(self, artist, full_songs=False):
         data = self.api.get_artist(artist.id)
         name = data.get("name") or artist.title
         rows = []
@@ -104,7 +156,15 @@ class MusicService:
                 if track.artist == "Unknown artist":
                     track = Track(track.id, track.title, name)
                 rows.append(track)
-        if songs.get("browseId"):
+        if full_songs and songs.get("browseId"):
+            complete = self.api.get_playlist(songs["browseId"], limit=None)
+            seen_songs = {track.id for track in rows}
+            for item in complete.get("tracks") or []:
+                if track := song_track(item):
+                    if track.id not in seen_songs:
+                        rows.append(Track(track.id, track.title, name if track.artist == "Unknown artist" else track.artist))
+                        seen_songs.add(track.id)
+        if songs.get("browseId") and not full_songs:
             rows.append(Track(songs["browseId"], "All songs", name, "playlist"))
         seen = set()
         for section in ("albums", "singles"):

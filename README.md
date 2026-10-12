@@ -55,7 +55,7 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | `s` / `r` / `e` / `v` | Shuffle / repeat / equalizer / speed |
 | Esc / `q` | Focus track list / detach |
 
-Artist pages show top songs, an all-songs collection when available, and albums/singles. Select a song to start radio, or open an album and press `o` to play it in order.
+Exact artist-name searches use the artist’s own albums and songs, with at least 25 songs when available. Artist pages show top songs, an all-songs collection when available, and albums/singles. Select a song to start radio, or open an album and press `o` to play it in order.
 
 Sign-in uses Brave by default; Chrome, Chromium and Edge can be selected with `--browser`. It grants only access your Google account is eligible for. YouTube may restrict streaming even when signed in.
 
