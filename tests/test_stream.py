@@ -129,3 +129,35 @@ def test_age_error_retries_only_same_authenticated_session(tmp_path, monkeypatch
             stream.resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path))
     assert len(attempts) == 2
     assert attempts[1]['extractor_args']['youtube']['player_client'] == ['web', 'mweb']
+
+
+@pytest.mark.parametrize('succeeds', [True, False])
+def test_unavailable_format_retries_same_session_without_anonymous_fallback(tmp_path, monkeypatch, succeeds):
+    import yt_dlp
+    from musik import stream
+    from test_auth import browser_jar
+    saved = browser_jar()
+    monkeypatch.setattr(stream, 'cookie_jar', lambda store: saved)
+    monkeypatch.setattr(stream, 'extractor_options', lambda: {
+        'format': 'bestaudio/best[acodec!=none]', 'js_runtimes': {'node': {'path': '/node'}}})
+    attempts = []
+    class Extractor:
+        def __init__(self, options):
+            assert options['format'] == 'bestaudio/best[acodec!=none]'
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def extract_info(self, *args, **kwargs):
+            assert list(self.cookiejar) == list(saved)
+            attempts.append(True)
+            if len(attempts) == 1 or not succeeds:
+                raise RuntimeError('Requested format is not available. Use --list-formats')
+            return {'url': 'https://example.org/audio'}
+    monkeypatch.setattr(yt_dlp, 'YoutubeDL', Extractor)
+    if succeeds:
+        assert resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path))['url'].endswith('/audio')
+    else:
+        with pytest.raises(RuntimeError, match='playable audio stream'):
+            resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path))
+    assert len(attempts) == 2

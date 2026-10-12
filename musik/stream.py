@@ -8,7 +8,7 @@ from .platform import cache_home
 
 
 def extractor_options():
-    options = {'format': 'bestaudio/best', 'quiet': True, 'no_warnings': True,
+    options = {'format': 'bestaudio/best[acodec!=none]', 'quiet': True, 'no_warnings': True,
                'logger': QuietLogger(), 'socket_timeout': 20, 'noplaylist': True,
                'cachedir': str(Path(os.environ.get('XDG_CACHE_HOME', str(cache_home()))) / 'musik' / 'yt-dlp')}
     runtimes = {}
@@ -27,8 +27,7 @@ def resolve_audio(url, store):
     saved = cookie_jar(store)
     alternate = dict(base, extractor_args={'youtube': {
         'player_client': ['tv', 'web'], 'player_skip': ['webpage']}})
-    signed_web = dict(base, extractor_args={'youtube': {'player_client': ['web', 'web_music']}})
-    routes = [(saved, signed_web if saved is not None else base), (saved, alternate)]
+    routes = [(saved, base), (saved, alternate)]
     login_info = has_playback_login(saved) if saved is not None else False
     age_retry_used = False
     if saved is not None:
@@ -61,8 +60,13 @@ def resolve_audio(url, store):
                             'player_client': ['web', 'mweb']}})))
                         continue
                     raise RuntimeError("YouTube still denied age-restricted playback with your saved account session. Confirm this exact video plays while signed in on youtube.com, then refresh Musik's login. The session may have expired or YouTube may require additional account verification.") from None
+                format_error = 'requested format is not available' in message
+                if format_error and index + 1 < len(routes) and routes[index + 1][0] is session:
+                    continue
+                if format_error and 'js_runtimes' in options:
+                    raise RuntimeError("YouTube did not provide a playable audio stream after retrying supported clients with your session. Try another upload of this song; YouTube may require a playback token that Musik cannot obtain automatically.") from None
                 reload_error = 'page needs to be reloaded' in message
-                if reload_error and index + 1 < len(routes):
+                if reload_error and index + 1 < len(routes) and (not age_retry_used or routes[index + 1][0] is not None):
                     continue
                 if reload_error:
                     raise RuntimeError('YouTube rejected playback, including the public-stream retry. Try this song in YouTube Music; restricted songs require an eligible account session.') from None
