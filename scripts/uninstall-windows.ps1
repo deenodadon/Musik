@@ -49,8 +49,12 @@ with (store.directory / 'update.lock').open('a+') as handle:
         if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $source '.git'))) {
             $changes = & git -C $source status --porcelain --untracked-files=all
             $statusExit = $LASTEXITCODE
-            $localCommits = & git -C $source rev-list --count HEAD --not --remotes
-            $preserve = ($statusExit -ne 0 -or $LASTEXITCODE -ne 0 -or $changes -or $localCommits -ne '0')
+            $localCommits = & git -C $source rev-list --count --branches --not --remotes
+            $commitExit = $LASTEXITCODE
+            $ignored = & git -C $source ls-files --others --ignored --exclude-standard
+            $ignoredExit = $LASTEXITCODE
+            $unknownIgnored = $ignored | Where-Object { $_ -notmatch '^(build/|dist/|[^/]+\.egg-info/|(?:.*/)?__pycache__/|\.pytest_cache/)' }
+            $preserve = ($statusExit -ne 0 -or $commitExit -ne 0 -or $ignoredExit -ne 0 -or $changes -or $unknownIgnored -or $localCommits -ne '0')
         }
         if ($preserve) {
             $backup = $root + '-source-backup-' + [Guid]::NewGuid().ToString('N')
