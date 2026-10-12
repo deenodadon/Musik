@@ -12,3 +12,5 @@ The desktop source trees are not shipped inside the Python package. Their browse
 Musik is licensed GPL-3.0-or-later, compatible with Limusic's GPL-3.0-or-later and Pear's MIT license. The GPL license is provided in LICENSE; Pear's notice is retained in third_party/pear-desktop-MIT.txt for attribution. The upstream repositories retain their own copyrights and licenses.
 
 GitHub fork creation was blocked by a Forbidden response from the authenticated GitHub API. After GitHub CLI authentication is restored, run `bash scripts/fork-upstreams.sh` to create both hosted forks in the authenticated user's account. This does not push or publish Musik.
+
+YouTube playback-token support uses [BgUtils POT Provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider), version 2.0.2 (GPL-3.0-only), and its pinned yt-dlp plugin. The helper is downloaded and built locally during setup.

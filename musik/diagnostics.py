@@ -40,6 +40,8 @@ def doctor(store=None, url=None):
         print('Background player: stopped')
     saved = cookie_jar(store)
     print('Playback session: ' + ('complete' if saved and has_playback_login(saved) else 'missing or incomplete'))
+    from .playback_setup import helper_ready
+    print('Playback-token helper: ' + ('ready' if helper_ready() else 'missing; run musik setup-playback'))
     options = extractor_options()
     print('JavaScript runtimes: ' + (', '.join(options.get('js_runtimes', {})) or 'none'))
     track = store.load().current

@@ -57,6 +57,8 @@ $venv = Join-Path $InstallDirectory 'venv'
 Invoke-Checked $pythonExe ($pythonPrefix + @('-m', 'venv', $venv))
 $venvPython = Join-Path $venv 'Scripts\python.exe'
 Invoke-Checked $venvPython @('-m', 'pip', 'install', '--upgrade', $source)
+& $venvPython -I -m musik.app setup-playback
+if ($LASTEXITCODE -ne 0) { Write-Warning 'Musik is installed, but playback-token setup failed. Retry musik setup-playback for affected YouTube streams.' }
 $bin = Join-Path $InstallDirectory 'bin'
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
 # The launcher remains stable while the updater replaces the installed package.

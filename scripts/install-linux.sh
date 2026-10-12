@@ -58,6 +58,9 @@ else
 fi
 python3 -m venv "$install_dir/.venv"
 "$install_dir/.venv/bin/python" -m pip install --upgrade "$install_dir"
+if ! "$install_dir/.venv/bin/python" -I -m musik.app setup-playback; then
+  printf '%s\n' 'Playback-token setup failed; Musik is installed. Retry musik setup-playback for affected YouTube streams.' >&2
+fi
 mkdir -p "$bin_dir"
 # Generate a launcher with safely quoted paths, including the private runtime.
 python3 - "$bin_dir/musik" "$install_dir/.venv/bin/python" "$runtime_dir/bin" <<'PY'

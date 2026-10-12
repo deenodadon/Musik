@@ -17,6 +17,12 @@ def extractor_options():
             runtimes[runtime] = {'path': executable}
     if runtimes:
         options['js_runtimes'] = runtimes
+    from .playback_setup import helper_ready, helper_directory
+    if helper_ready():
+        options['extractor_args'] = {
+            'youtube': {'player_client': ['mweb', 'web'], 'fetch_pot': ['always']},
+            'youtubepot-bgutilscript': {'server_home': [str(helper_directory() / 'server')]},
+        }
     return options
 
 
@@ -41,8 +47,10 @@ def resolve_audio(url, store, *, alternate_audio=False, rejected_format=None):
     if alternate_audio:
         base['format'] = alternate_audio_selector(rejected_format)
     saved = cookie_jar(store)
-    alternate = dict(base, extractor_args={'youtube': {
-        'player_client': ['tv', 'web'], 'player_skip': ['webpage']}})
+    alternate_args = dict(base.get('extractor_args', {}))
+    alternate_args['youtube'] = dict(alternate_args.get('youtube', {}),
+                                    player_client=['tv', 'web'], player_skip=['webpage'])
+    alternate = dict(base, extractor_args=alternate_args)
     routes = [(saved, base), (saved, alternate)]
     login_info = has_playback_login(saved) if saved is not None else False
     age_retry_used = False
@@ -72,8 +80,9 @@ def resolve_audio(url, store, *, alternate_audio=False, rejected_format=None):
                         age_retry_used = True
                         # Retry ordinary signed-in web clients with the same
                         # account cookies. Never retry this denial anonymously.
-                        routes.insert(index + 1, (saved, dict(base, extractor_args={'youtube': {
-                            'player_client': ['web', 'mweb']}})))
+                        args = dict(base.get('extractor_args', {}))
+                        args['youtube'] = dict(args.get('youtube', {}), player_client=['web', 'mweb'])
+                        routes.insert(index + 1, (saved, dict(base, extractor_args=args)))
                         continue
                     raise RuntimeError("YouTube still denied age-restricted playback with your saved account session. Confirm this exact video plays while signed in on youtube.com, then refresh Musik's login. The session may have expired or YouTube may require additional account verification.") from None
                 format_error = 'requested format is not available' in message

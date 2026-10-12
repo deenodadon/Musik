@@ -618,7 +618,7 @@ class Musik(App):
 
 def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
-    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor", "setup-playback"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
     parser.add_argument("--url", help="YouTube link to check with musik doctor")
     parser.add_argument("--local", help="Browse a directory of local audio files")
     parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default=None, help="Sign-in browser (default: Windows default browser; Brave on Linux)")
@@ -628,6 +628,12 @@ def main():
     parser.add_argument("--account", type=int, default=0, help="Browser Google account index for login: 0 first, 1 second, etc.")
     args = parser.parse_args()
     try:
+        if args.command == "setup-playback":
+            from .playback_setup import ensure_helper
+            print("Setting up YouTube playback-token support (git, Node.js and npm required)…", flush=True)
+            ensure_helper()
+            print("Playback helper ready. Run musik stop, then musik to use it.")
+            return
         if args.command == "doctor":
             from .diagnostics import doctor
             doctor(url=args.url)
