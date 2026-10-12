@@ -104,7 +104,10 @@ async def test_recoverable_http_warning_is_not_reported_as_playback_failure(fail
         {'event': 'start-file'},
         {'event': 'log-message', 'text': 'HTTP error 403 Forbidden'},
     ]
-    messages.append({'event': 'end-file', 'reason': 'error'} if failed else {'event': 'file-loaded'})
+    if failed:
+        messages.append({'event': 'end-file', 'reason': 'error'})
+    else:
+        messages.extend([{'event': 'file-loaded'}, {'event': 'playback-restart'}])
     for message in messages:
         player.reader.feed_data((json.dumps(message) + '\n').encode())
     player.reader.feed_eof()
@@ -130,6 +133,7 @@ async def test_hls_uses_track_duration_and_advancing_audio_clock(tmp_path, monke
     await player.play(Track('song', 'Song'), State())
     player.reader = asyncio.StreamReader()
     messages = [
+        {'event': 'start-file', 'playlist_entry_id': 1},
         {'event': 'property-change', 'name': 'duration', 'data': 95383},
         {'event': 'property-change', 'name': 'time-pos', 'data': None},
         {'event': 'property-change', 'name': 'audio-pts', 'data': 90000},
@@ -184,6 +188,7 @@ async def test_alternate_stream_starts_at_existing_position(tmp_path, monkeypatc
     monkeypatch.setattr(stream, 'resolve_audio', lambda *a, **k: {'url': 'https://example.org/hls', 'duration': 200})
     player = Player(store=Store(tmp_path))
     player.position = 2.5
+    player.playback_started = True
     commands = []
     async def command(*args):
         commands.append(args)
@@ -194,6 +199,134 @@ async def test_alternate_stream_starts_at_existing_position(tmp_path, monkeypatc
     assert player.position == 2.5
     player.update_position('audio-pts', 90001)
     assert player.position == 3.5
+
+
+async def test_alternate_starts_at_zero_when_rejected_stream_never_played(tmp_path, monkeypatch):
+    from musik.core import Store
+    monkeypatch.setattr('musik.stream.resolve_audio', lambda *a, **k: {'url': 'https://example.org/hls', 'duration': 200})
+    player = Player(store=Store(tmp_path))
+    player.position = 2.5
+    commands = []
+    async def command(*args):
+        commands.append(args)
+    player.command = command
+    await player.play(Track('song', 'Song'), State(), retry_stream=True)
+    assert ('loadfile', 'https://example.org/hls', 'replace') in commands
+    assert player.position == player.resume_offset == 0
+
+
+async def test_fallback_eof_keeps_selected_song_until_alternate_really_finishes(tmp_path, monkeypatch):
+    import json
+    from musik.core import Store
+    from musik.daemon import Daemon
+    store = Store(tmp_path)
+    daemon = Daemon(store)
+    player = daemon.player
+    daemon.state = State(queue=[Track('song', 'Song'), Track('next', 'Next')], index=0)
+    monkeypatch.setattr('musik.stream.resolve_audio', lambda url, store, **kw: {
+        'url': 'https://example.org/alternate' if kw.get('alternate_audio') else url, 'duration': 200})
+    player.reader = asyncio.StreamReader()
+    def feed(*messages):
+        for message in messages:
+            player.reader.feed_data((json.dumps(message) + '\n').encode())
+    loads = []
+    async def command(*args):
+        if args[0] == 'loadfile':
+            loads.append(args)
+            feed({'event': 'start-file', 'playlist_entry_id': 9 + len(loads)})
+            if args[1] == 'https://example.org/alternate':
+                feed({'event': 'file-loaded'}, {'event': 'playback-restart'},
+                     {'event': 'property-change', 'name': 'time-pos', 'data': .25},
+                     {'event': 'end-file', 'playlist_entry_id': 10, 'reason': 'eof'})
+    player.command = command
+    reader = asyncio.create_task(player._read())
+    monitor = asyncio.create_task(daemon.monitor())
+    try:
+        await daemon.play(daemon.state.current)
+        feed({'event': 'log-message', 'text': 'HTTP error 403 Forbidden'},
+             {'event': 'file-loaded'},
+             {'event': 'property-change', 'name': 'time-pos', 'data': 2.5},
+             {'event': 'end-file', 'playlist_entry_id': 10, 'reason': 'eof'})
+        async with asyncio.timeout(3):
+            while not player.playback_started:
+                await asyncio.sleep(.01)
+        await asyncio.sleep(.05)
+        assert loads == [('loadfile', daemon.state.queue[0].url, 'replace'),
+                         ('loadfile', 'https://example.org/alternate', 'replace')]
+        assert daemon.state.index == 0
+        assert player.position == .25
+        assert player.failure_detail is None and player.pending_failure is None
+        assert daemon.message == 'Playing Song'
+        feed({'event': 'property-change', 'name': 'time-pos', 'data': 200},
+             {'event': 'end-file', 'playlist_entry_id': 11, 'reason': 'eof'})
+        async with asyncio.timeout(3):
+            while daemon.state.index != 1:
+                await asyncio.sleep(.01)
+        assert len(loads) == 3 and loads[-1][1] == daemon.state.queue[1].url
+    finally:
+        monitor.cancel()
+        reader.cancel()
+        await asyncio.gather(reader, monitor, return_exceptions=True)
+        await player.close()
+        daemon.service.nuclear.close()
+
+
+@pytest.mark.skipif(not (os.environ.get('MUSIK_MPV') or shutil.which('mpv')), reason='mpv not installed')
+async def test_real_http_403_recovers_without_seek_or_queue_change(tmp_path, monkeypatch):
+    import functools
+    import http.server
+    import threading
+    from musik.core import Store
+    from musik.daemon import Daemon
+    audio = tmp_path / 'audio.wav'
+    with wave.open(str(audio), 'wb') as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(16000)
+        output.writeframes(struct.pack('<h', 1000) * 96000)
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/rejected':
+                self.send_error(403)
+            else:
+                super().do_GET()
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(tmp_path)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    calls = []
+    def resolve(url, store, **kwargs):
+        calls.append(kwargs)
+        path = 'audio.wav' if kwargs.get('alternate_audio') else 'rejected'
+        return {'url': f'http://127.0.0.1:{server.server_port}/{path}', 'duration': 6}
+    monkeypatch.setattr('musik.stream.resolve_audio', resolve)
+    daemon = Daemon(Store(tmp_path / 'state'))
+    daemon.player.audio_output = 'null'
+    daemon.state = State(queue=[Track('song', 'Song'), Track('next', 'Next')], index=0)
+    monitor = None
+    try:
+        await daemon.player.start()
+        monitor = asyncio.create_task(daemon.monitor())
+        await daemon.play(daemon.state.current)
+        async with asyncio.timeout(8):
+            while not daemon.player.playback_started or daemon.player.position <= 0:
+                await asyncio.sleep(.02)
+        assert len(calls) == 2 and calls[1]['alternate_audio'] is True
+        assert daemon.state.index == 0
+        assert daemon.player.resume_offset == 0
+        assert daemon.player.failure_detail is None
+        assert daemon.player.pending_failure is None
+        assert daemon.message == 'Playing Song'
+    finally:
+        if monitor:
+            monitor.cancel()
+            await asyncio.gather(monitor, return_exceptions=True)
+        await daemon.player.close()
+        daemon.service.nuclear.close()
+        await asyncio.to_thread(server.shutdown)
+        server.server_close()
+        thread.join(timeout=1)
 
 
 async def test_late_error_from_replaced_entry_does_not_poison_new_stream():
@@ -273,6 +406,7 @@ async def test_resume_uses_the_loadfile_protocol_advertised_by_mpv(tmp_path,supp
     try:
         await player.detect_loadfile_command()
         player.position=12.5
+        player.playback_started=True
         await player.play(Track(str(tmp_path/'tone.wav'),'Tone',source='local'),State(),retry_stream=True)
         expected=('loadfile',str(tmp_path/'tone.wav'),'replace')
         if supports_index:expected+=(-1,)

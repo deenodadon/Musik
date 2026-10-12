@@ -70,6 +70,7 @@ class Player:
         self.visualizer_task = None
         self.format_id = None
         self.stream_retry_used = False
+        self.playback_started = False
         self.audio_cache = OrderedDict()
         self.audio_resolutions = {}
         from .nuclear import NuclearRuntime
@@ -156,7 +157,8 @@ class Player:
                 if message.get("event") == "property-change":
                     value = message.get("data")
                     if message.get("name") in ("time-pos", "audio-pts"):
-                        self.update_position(message["name"], value)
+                        if self.active_generation == self.play_generation:
+                            self.update_position(message["name"], value)
                     elif message.get("name") == "demuxer-start-time":
                         self.demuxer_start = value
                     elif message.get("name") == "duration":
@@ -170,9 +172,14 @@ class Player:
                     if detail:
                         self.pending_failure = detail
                 elif message.get("event") == "file-loaded":
-                    self.failure_detail = None
-                    self.pending_failure = None
+                    if self.active_generation == self.play_generation:
+                        self.failure_detail = None
                     await self.events.put({"event": "file-loaded", "_musik_generation": self.active_generation})
+                elif message.get("event") == "playback-restart":
+                    if self.active_generation == self.play_generation:
+                        self.playback_started = True
+                        self.failure_detail = None
+                        self.pending_failure = None
                 elif message.get("event") == "start-file":
                     self.active_generation = self.play_generation
                     entry = message.get("playlist_entry_id")
@@ -181,8 +188,15 @@ class Player:
                         if len(self.entry_generations) > 16:
                             self.entry_generations.pop(next(iter(self.entry_generations)))
                 elif message.get("event") == "end-file":
-                    ending_generation = self.entry_generations.pop(message.get("playlist_entry_id"), self.active_generation)
+                    # Retain completed IDs so a delayed/duplicate terminal event
+                    # cannot be attributed to the replacement stream.
+                    ending_generation = self.entry_generations.get(message.get("playlist_entry_id"), self.active_generation)
                     message["_musik_generation"] = ending_generation
+                    if message.get("reason") == "eof" and ending_generation == self.play_generation:
+                        completed = self.duration > 0 and self.position >= self.duration - 1
+                        rejected = self.pending_failure and "HTTP 403" in self.pending_failure
+                        if not self.playback_started or (rejected and not completed):
+                            message["reason"] = "error"
                     if message.get("reason") == "error":
                         detail = self.pending_failure or self.failure_detail or "mpv could not open this audio stream. Run musik doctor for diagnostics."
                         if ending_generation == self.play_generation:
@@ -295,7 +309,10 @@ class Player:
         return await asyncio.shield(task)
 
     async def play(self, track: Track, state: State, *, retry_stream=False):
-        resume = self.position if retry_stream else 0.0
+        # Decoder/buffer timestamps can advance even if the rejected stream
+        # never produced audio. Only resume a stream that actually started.
+        resume = self.position if retry_stream and self.playback_started else 0.0
+        self.playback_started = False
         self.resume_offset = resume
         if not retry_stream:
             self.online_stream = track.source in ("youtube", "video") and not self.nuclear.selected("streaming")
