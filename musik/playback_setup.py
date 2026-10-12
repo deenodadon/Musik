@@ -52,9 +52,12 @@ def ensure_helper():
             return directory / 'server'
         with tempfile.TemporaryDirectory(prefix='.helper-', dir=directory.parent) as temporary:
             source = Path(temporary) / 'source'
+            print("[1/3] Downloading playback helper…", flush=True)
             run([git, '-c', 'credential.helper=', 'clone', '--depth', '1', '--branch', HELPER_VERSION, HELPER_REMOTE, str(source)])
             server = source / 'server'
+            print("[2/3] Installing helper dependencies; this may take a few minutes…", flush=True)
             run([node, str(npm_cli), 'ci', '--cache', str(directory.parent / 'npm-cache'), '--no-audit', '--no-fund'], cwd=server)
+            print("[3/3] Building playback helper…", flush=True)
             run([node, str(server / 'node_modules/typescript/bin/tsc')], cwd=server)
             if not (server / 'build/generate_once.js').is_file():
                 raise RuntimeError('Playback helper build did not produce its token-generation script.')

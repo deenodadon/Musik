@@ -5,6 +5,7 @@ APP_VERSION = version("musik-tui")
 from functools import partial
 import asyncio
 from pathlib import Path
+import shutil
 
 from rich.text import Text
 from textual import on
@@ -52,6 +53,7 @@ class Musik(App):
     #tracks { height: 1fr; border: round #435674; }
     #lyrics { height: 1fr; border: round #435674; padding: 1; overflow-y: auto; }
     #now { height: 5; margin: 1 2; padding: 0 1; border: round #66d9bb; }
+    #playback-ready { height: 2; margin: 0 2; color: #66d9bb; }
     #update { height: 1; margin: 0 2; color: #8899aa; }
     #status { height: 2; margin: 0 2; color: #66d9bb; }
     .label { height: 2; color: #66d9bb; text-style: bold; }
@@ -120,6 +122,7 @@ class Musik(App):
                 yield Static("Select a song and press L.\n\n1 Results · 2 Queue\n3 Favorites · 4 History\nA Add to queue · Enter Play\nS Shuffle · R Repeat\nE Equalizer · V Speed", id="lyrics", markup=False)
         yield Visualizer(id="visualizer", markup=False)
         yield Static("Nothing playing", id="now", markup=False)
+        yield Static("Playback: checking…", id="playback-ready", markup=False)
         yield Static("Ready to browse", id="status", markup=False)
         yield Static("", id="update", markup=False)
         yield Footer()
@@ -142,6 +145,7 @@ class Musik(App):
             self.status("Player ready. Q detaches; musik stop stops background playback.")
         except Exception as exc:
             self.status(str(exc))
+        self.refresh_readiness()
 
     def status(self, text):
         for widget in self.query("#status"):
@@ -397,6 +401,23 @@ class Musik(App):
         except Exception as exc:
             self.status(str(exc))
 
+    def refresh_readiness(self):
+        from .playback_setup import helper_ready
+        if not self.ready:
+            text = "Playback: player unavailable — check the error below"
+        elif self.background and getattr(self.player, "engine_version", None) != APP_VERSION:
+            text = "Playback: restart needed — run musik stop, then musik"
+        elif getattr(self.player, "failure_detail", None):
+            text = "Playback: stream failed — run musik doctor"
+        elif not any(shutil.which(runtime) for runtime in ("node", "deno", "bun")):
+            text = "Playback: local audio ready; YouTube needs Node.js 22+ — rerun the installer"
+        elif not helper_ready():
+            text = "Playback: player ready; YouTube token helper missing — run musik setup-playback"
+        else:
+            text = "Playback: setup ready · player ready · JavaScript ready · token helper ready"
+        for widget in self.query("#playback-ready"):
+            widget.update(text)
+
     async def tick(self):
         for widget in self.query("#update"):
             message = read_status(self.store).get("message", "")
@@ -425,6 +446,7 @@ class Musik(App):
                 self.ready = False
                 self.exit()
                 return
+        self.refresh_readiness()
         if self.highlight_stamp != (self.state.index, self.state.current, self.player.idle, self.player.paused):
             self.refresh_tracks()
         track = self.state.current

@@ -73,6 +73,7 @@ class BackgroundPlayer:
         self.message = ""
         self.supports_repeat_song = None
         self.engine_version = None
+        self.failure_detail = None
 
     async def start(self):
         try:
@@ -96,6 +97,7 @@ class BackgroundPlayer:
 
     def update(self, response):
         self.engine_version = response.get("version")
+        self.failure_detail = response.get("playback_error")
         self.supports_repeat_song = "repeat_one" in response["state"]
         self.state = decode_state(response["state"])
         for key in ("position", "duration", "paused", "idle", "levels", "message"):

@@ -205,3 +205,27 @@ async def test_escape_focus_and_seek_shortcuts_from_search_menu_and_tracks(tmp_p
         await pilot.press('right', 'left', 'escape')
         assert app.focused is app.query_one(DataTable)
         assert player.commands == [('seek', 10, 'relative'), ('seek', -10, 'relative')] * 3
+
+
+async def test_readiness_indicator_reports_missing_helper_ready_and_stream_failure(tmp_path, monkeypatch):
+    from musik import playback_setup
+    import shutil
+    monkeypatch.setattr(shutil, 'which', lambda name: '/node' if name == 'node' else None)
+    helper = {'ready': False}
+    monkeypatch.setattr(playback_setup, 'helper_ready', lambda: helper['ready'])
+    player = FakePlayer()
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=player)
+    async with app.run_test(size=(120, 45)) as pilot:
+        app.refresh_readiness()
+        widget = app.query_one('#playback-ready', Static)
+        assert 'musik setup-playback' in str(widget.content)
+        helper['ready'] = True
+        app.refresh_readiness()
+        assert 'setup ready' in str(widget.content)
+        player.failure_detail = 'HTTP 403'
+        app.refresh_readiness()
+        assert 'stream failed' in str(widget.content)
+        player.failure_detail = None
+        monkeypatch.setattr(shutil, 'which', lambda name: None)
+        app.refresh_readiness()
+        assert 'needs Node.js' in str(widget.content)
