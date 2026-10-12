@@ -687,6 +687,7 @@ def main():
     parser.add_argument("--install", dest="install_plugin", help="Install and enable a Nuclear registry plugin")
     parser.add_argument("--enable", dest="enable_plugin", help="Enable an installed Nuclear plugin")
     parser.add_argument("--disable", dest="disable_plugin", help="Disable an installed Nuclear plugin")
+    parser.add_argument("--uninstall", dest="uninstall_plugin", help="Remove a Nuclear plugin and its saved settings")
     parser.add_argument("--installed", dest="installed_plugins", action="store_true", help="Show enabled providers and compatibility status")
     parser.add_argument("--provider", help="Select a provider: KIND=ID; ID=builtin restores Musik defaults")
     parser.add_argument("--setting", help="Set a plugin setting: ID=JSON_VALUE (requires --plugin)")

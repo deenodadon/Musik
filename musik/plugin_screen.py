@@ -5,7 +5,7 @@ from textual.app import ComposeResult
 from textual.screen import ModalScreen
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Button, DataTable, Static, Select, Input
-from .nuclear import registry, configuration, install_plugin, set_enabled, select_provider, parse_setting
+from .nuclear import registry, configuration, install_plugin, uninstall_plugin, set_enabled, select_provider, parse_setting
 
 
 class PluginScreen(ModalScreen):
@@ -17,6 +17,7 @@ class PluginScreen(ModalScreen):
     #plugin-description { height: 3; }
     #plugin-progress { height: 3; }
     #plugin-buttons { height: 3; }
+    #plugin-buttons Button { min-width: 10; width: 1fr; }
     #plugin-provider { width: 1fr; }
     '''
 
@@ -35,6 +36,7 @@ class PluginScreen(ModalScreen):
             with Horizontal(id='plugin-buttons'):
                 yield Button('Install', id='plugin-install')
                 yield Button('Enable / Disable', id='plugin-toggle')
+                yield Button('Uninstall', id='plugin-uninstall')
                 yield Button('Charts', id='plugin-charts')
                 yield Button('Close', id='plugin-close')
             yield Select([], prompt='Choose a provider to use', id='plugin-provider')
@@ -157,6 +159,13 @@ class PluginScreen(ModalScreen):
                     self.progress('Install this plugin first.')
                     return
                 operation = lambda: set_enabled(plugin_id, not info['enabled'], self.service.store)
+            elif event.button.id == 'plugin-uninstall':
+                if plugin_id not in configuration(self.service.store)['installed']:
+                    self.progress('This plugin is not installed.')
+                    return
+                def operation():
+                    self.service.nuclear.close()
+                    uninstall_plugin(plugin_id, self.service.store)
             else:
                 return
         self.busy = True
@@ -168,7 +177,7 @@ class PluginScreen(ModalScreen):
             await asyncio.to_thread(operation)
             if self.is_mounted:
                 await self.refresh_installed()
-                self.progress('Saved. New searches and playback use the selected providers.')
+                self.progress('Plugin uninstalled. Its files and settings were removed.' if event.button.id == 'plugin-uninstall' else 'Saved. New searches and playback use the selected providers.')
         except Exception as error:
             self.progress(str(error))
         finally:

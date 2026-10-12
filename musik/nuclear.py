@@ -229,6 +229,44 @@ def set_enabled(plugin_id, enabled, store=None):
             runtime.close()
 
 
+def uninstall_plugin(plugin_id, store=None):
+    store = store or Store()
+    valid_id(plugin_id)
+    config = configuration(store)
+    info = config['installed'].get(plugin_id)
+    if not info:
+        raise ValueError('Plugin is not installed')
+    root = plugin_root(store)
+    path = root / info['path']
+    if path.parent != root or path.is_symlink() or path.resolve().parent != root.resolve():
+        raise ValueError('Plugin installation path is unsafe')
+    owned = {p['id'] for p in info.get('providers', [])}
+    runtime = NuclearRuntime(store)
+    try:
+        if info['enabled'] and not owned:
+            owned = {p['id'] for p in runtime.status()['providers'] if p['pluginId'] == plugin_id}
+        info['enabled'] = False
+        for kind, identity in list(config['active'].items()):
+            if identity in owned:
+                config['active'][kind] = 'builtin'
+        save_configuration(store, config)
+        runtime.close()
+        # Remove this release and older immutable releases of this plugin.
+        referenced = {p['path'] for key, p in config['installed'].items() if key != plugin_id}
+        for candidate in root.iterdir():
+            old_release = re.fullmatch(re.escape(plugin_id) + r'-[0-9a-f]{12}-host\d+', candidate.name)
+            if (candidate == path or old_release) and candidate.name not in referenced:
+                if candidate.is_symlink():
+                    candidate.unlink()
+                elif candidate.is_dir():
+                    shutil.rmtree(candidate)
+        runtime._settings_callback('purge', [plugin_id])
+        del config['installed'][plugin_id]
+        save_configuration(store, config)
+    finally:
+        runtime.close()
+
+
 def select_provider(kind, provider_id, store=None):
     store = store or Store()
     if kind not in SUPPORTED_KINDS:
@@ -434,6 +472,11 @@ class NuclearRuntime:
             elif action == 'set':
                 values[f'{namespace}:{args[1]}'] = args[2]
                 changed = True
+            elif action == 'purge':
+                keys = [key for key in values if key.startswith(f'{namespace}:')]
+                for key in keys:
+                    del values[key]
+                changed = bool(keys)
             else:
                 raise ValueError('Unsupported settings operation')
             if changed:
@@ -669,6 +712,9 @@ def plugin_command(args, store=None):
     if args.install_plugin:
         providers = install_plugin(args.install_plugin, store)
         print('Enabled providers: ' + ', '.join(f'{p["kind"]}: {p["id"]}' for p in providers))
+    elif args.uninstall_plugin:
+        uninstall_plugin(args.uninstall_plugin, store)
+        print('Plugin uninstalled. Its files and settings were removed.')
     elif args.enable_plugin or args.disable_plugin:
         set_enabled(args.enable_plugin or args.disable_plugin, bool(args.enable_plugin), store)
         print('Plugin selection saved.')
@@ -713,4 +759,4 @@ def list_plugins(plugin_id=None, store=None):
         print(f"\n{entry['id']} · {entry.get('name', entry['id'])} · {state}")
         print(entry.get('description', ''))
         print(f"https://github.com/{entry['repo']}")
-    print('\nInstall: musik plugins --install ID\nProviders/status: musik plugins --installed')
+    print('\nInstall: musik plugins --install ID\nUninstall: musik plugins --uninstall ID\nProviders/status: musik plugins --installed')

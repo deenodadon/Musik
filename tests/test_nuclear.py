@@ -65,6 +65,59 @@ def plugin_store(tmp_path):
     return store
 
 
+@pytest.mark.parametrize('enabled', [True, False])
+def test_uninstall_removes_releases_and_private_settings_only_for_selected_plugin(tmp_path, enabled):
+    store = plugin_store(tmp_path)
+    root = nuclear.plugin_root(store)
+    config = nuclear.configuration(store)
+    config['installed']['test']['enabled'] = enabled
+    config['installed']['test']['providers'] = [{'id': value} for value in config['active'].values()]
+    config['installed']['other'] = {'path': 'other-provider', 'enabled': False, 'name': 'Other'}
+    config['active']['discovery'] = 'other-discovery'
+    nuclear.save_configuration(store, config)
+    (root / 'other-provider').mkdir()
+    (root / 'test-abcdef012345-host1').mkdir()
+    (root / 'test-extra-abcdef012345-host1').mkdir()
+    (root / 'settings.json').write_text(json.dumps({'test:token': 'secret', 'other:token': 'keep'}))
+    (root / 'playlists.json').write_text('[]')
+    nuclear.uninstall_plugin('test', store)
+    config = nuclear.configuration(store)
+    assert 'test' not in config['installed']
+    assert config['installed']['other']['path'] == 'other-provider'
+    assert all(value == 'builtin' for kind, value in config['active'].items() if kind != 'discovery')
+    assert config['active']['discovery'] == 'other-discovery'
+    assert not (root / 'test-provider').exists()
+    assert not (root / 'test-abcdef012345-host1').exists()
+    assert (root / 'other-provider').exists()
+    assert (root / 'test-extra-abcdef012345-host1').exists()
+    assert json.loads((root / 'settings.json').read_text()) == {'other:token': 'keep'}
+    assert (root / 'playlists.json').read_text() == '[]'
+
+
+def test_uninstall_rejects_installation_path_outside_plugin_directory(tmp_path):
+    store = plugin_store(tmp_path)
+    config = nuclear.configuration(store)
+    config['installed']['test']['path'] = '../outside'
+    nuclear.save_configuration(store, config)
+    with pytest.raises(ValueError, match='unsafe'):
+        nuclear.uninstall_plugin('test', store)
+    assert nuclear.configuration(store) == config
+
+
+def test_uninstall_cli(tmp_path, monkeypatch, capsys):
+    import sys
+    from musik.app import main
+    store = plugin_store(tmp_path)
+    config = nuclear.configuration(store)
+    config['installed']['test']['enabled'] = False
+    nuclear.save_configuration(store, config)
+    monkeypatch.setattr(nuclear, 'Store', lambda: store)
+    monkeypatch.setattr(sys, 'argv', ['musik', 'plugins', '--uninstall', 'test'])
+    main()
+    assert 'Plugin uninstalled' in capsys.readouterr().out
+    assert 'test' not in nuclear.configuration(store)['installed']
+
+
 @pytest.mark.skipif(not shutil.which('node'),reason='Node is required for plugin execution')
 async def test_plugin_search_browse_lyrics_and_stream_reaches_player(tmp_path):
     store = plugin_store(tmp_path)
@@ -165,6 +218,15 @@ async def test_plugin_menu_opens_selects_provider_and_closes(tmp_path, monkeypat
             await pilot.click('#plugin-use')
             await pilot.pause(.2)
             assert nuclear.configuration(store)['active']['streaming']=='builtin'
+            await pilot.click('#plugin-uninstall')
+            for _ in range(40):
+                await pilot.pause(.02)
+                if not app.screen.busy:
+                    break
+            assert 'test' not in nuclear.configuration(store)['installed']
+            assert not (store.directory/'plugins/test-provider').exists()
+            assert service.nuclear.status()['providers'] == []
+            assert app.screen.query_one('#plugin-list').get_row_at(0)[2] == 'Not installed'
             await pilot.press('escape')
             assert not isinstance(app.screen,PluginScreen)
     finally:
