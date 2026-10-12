@@ -252,7 +252,7 @@ class Player:
                             break
             if preferred:
                 info = self.nuclear.call('stream', track=nuclear_track(track), provider=preferred)
-                return {'url': info['url'], 'duration': (info.get('durationMs') or 0) / 1000, 'http_headers': info.get('headers', {})}
+                return {'url': info['url'], 'duration': (info.get('durationMs') or 0) / 1000, 'http_headers': info.get('headers', {}), '_musik_youtube_url': info.get('_musik_youtube_url'), 'format_id': info.get('format_id')}
             # Metadata-only providers need a separate audio source. The Musik
             # default uses its existing YouTube search/extractor, not whichever
             # unrelated plugin happened to register first.
@@ -266,7 +266,7 @@ class Player:
             return info
         if provider := self.nuclear.selected('streaming'):
             info = self.nuclear.call('stream', track=nuclear_track(track), provider=provider)
-            return {'url': info['url'], 'duration': (info.get('durationMs') or 0) / 1000, 'http_headers': info.get('headers', {})}
+            return {'url': info['url'], 'duration': (info.get('durationMs') or 0) / 1000, 'http_headers': info.get('headers', {}), '_musik_youtube_url': info.get('_musik_youtube_url'), 'format_id': info.get('format_id')}
         from .stream import resolve_audio
         info = resolve_audio(track.url, self.store)
         info['_musik_youtube_url'] = track.url

@@ -364,3 +364,29 @@ async def test_closing_player_does_not_wait_for_background_plugin_http(tmp_path,
             await asyncio.gather(preparation,return_exceptions=True)
         service.nuclear.close()
         await player.close()
+
+
+@pytest.mark.skipif(not shutil.which('node'),reason='Node is required for plugin execution')
+async def test_ytdlp_backed_plugin_retains_original_then_alternate_playback(tmp_path,monkeypatch):
+    store=plugin_store(tmp_path)
+    path=tmp_path/'plugins/test-provider/plugin.mjs'
+    path.write_text(path.read_text().replace("getStreamUrl: async id=>({url:'https://audio.example/'+id,durationMs:120000})", "getStreamUrl: async id=>{const info=await api.Ytdlp.getStream('abcdefghijk');return {url:info.stream_url,durationMs:120000};}"))
+    player=Player(store=store)
+    service=MusicService(store)
+    calls=[]
+    def resolve(url,store,**kwargs):
+        calls.append((url,kwargs))
+        return {'url':'https://audio.example/alternate' if kwargs else 'https://audio.example/original','duration':120,'format_id':'original'}
+    monkeypatch.setattr('musik.stream.resolve_audio',resolve)
+    async def command(*args):pass
+    player.command=command
+    try:
+        song=service.search('song')[0]
+        await player.play(song,State())
+        assert player.online_stream
+        assert len(calls)==1 and calls[0][1]=={}
+        await player.play(song,State(),retry_stream=True)
+        assert calls[1]==('https://www.youtube.com/watch?v=abcdefghijk',{'alternate_audio':True,'rejected_format':'original'})
+    finally:
+        await player.close()
+        service.nuclear.close()

@@ -253,6 +253,7 @@ class NuclearRuntime:
         self.lock = threading.RLock()
         self.messages = queue.Queue()
         self.serial = 0
+        self.youtube_streams = {}
         self.stamp = None
         self.report = {'providers': [], 'loaded': [], 'failures': {}, 'settings': []}
 
@@ -336,7 +337,12 @@ class NuclearRuntime:
             self.ensure()
             if not self.process:
                 raise RuntimeError('No Nuclear plugins are enabled')
-            return self._rpc(operation, args)
+            result = self._rpc(operation, args)
+            if operation == 'stream' and isinstance(result, dict):
+                origin = self.youtube_streams.get(result.get('url'))
+                if origin:
+                    result = dict(result, **origin)
+            return result
 
     def selected(self, kind):
         provider_id = configuration(self.store)['active'].get(kind)
@@ -362,6 +368,10 @@ class NuclearRuntime:
                 if not urlparse(url).scheme:
                     url = f'https://www.youtube.com/watch?v={url}'
                 info = resolve_audio(url, self.store)
+                if urlparse(url).hostname in ('youtube.com','www.youtube.com','music.youtube.com','m.youtube.com','youtu.be'):
+                    self.youtube_streams[info['url']] = {'_musik_youtube_url':url,'format_id':info.get('format_id')}
+                    while len(self.youtube_streams)>256:
+                        self.youtube_streams.pop(next(iter(self.youtube_streams)))
                 return {'stream_url': info['url'], 'duration': info.get('duration'), 'title': info.get('title'), 'container': info.get('ext'), 'codec': info.get('acodec'), 'artists': info.get('artists', []), 'album_artists': []}
             options = extractor_options(self.store)
             options.update(extract_flat=True, playlistend=min(int(args[1]) if len(args)>1 else 10, 100))
