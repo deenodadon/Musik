@@ -114,7 +114,7 @@ musik login --browser brave
 musik
 ```
 
-To import an already-signed-in session without opening a page or prompting, add `--import-only`. Native and common Flatpak browser launchers are supported; Flatpak profiles are detected when a native profile does not exist. If extraction fails, close the browser and retry. Browser profiles and keyring access must be available to your user. Use `--profile /path/to/browser/profile` for a non-default profile. The default Google account in that profile is used.
+To import an already-signed-in session without opening a page or prompting, add `--import-only`. Native and common Flatpak browser launchers are supported; Flatpak profiles are detected when a native profile does not exist. If extraction fails, close the browser and retry. Browser profiles and keyring access must be available to your user. Use `--profile /path/to/browser/profile` for a non-default profile. The first Google account in that profile is used by default. Use `--account 1` for the second account, `--account 2` for the third, and so on; Google's `authuser` number in the browser URL identifies the index.
 
 Login validates library access and imports playlist names. Press **5** in the TUI to refresh your account playlists; press **Enter** to open one, then **Ctrl+Enter** (or **O**) to play its full ordered queue. Enter on an individual song continues to start song radio. Imports are read-only and do not change the playlists in your Google account.
 
@@ -127,6 +127,29 @@ musik logout
 ```
 
 Logout stops background playback and removes the imported cookies; it does not sign out your browser. Playlist names remain cached locally. Real account sign-in cannot be validated in the cloud without your browser session; tests use synthetic cookies and mocked account responses.
+
+## Start over / purge all Musik data
+
+```sh
+musik reset
+```
+
+Reset stops the playback service and closes connected TUIs, then permanently removes Musik's saved session, selected account, imported playlists, queue, favorites, history, preferences, update receipt, cache and runtime files. It leaves installed code, your source checkout, local music files, and browser cookies intact. If an automatic update is still running, wait for it to finish and retry reset.
+
+To start with a different account, sign out of all Google accounts in Brave and sign in only to the desired one, then:
+
+```sh
+musik login --browser brave
+musik
+```
+
+If keeping several accounts signed in, explicitly select the index instead:
+
+```sh
+musik login --browser brave --account 1
+```
+
+This selects the second Google account for playlist/library API access. For authenticated playback that must use a particular account, a browser profile signed in only to that account is the most reliable option. Use `--profile` if needed. Press 5 after login to import the selected account's playlists.
 
 ## Automatic radio queues
 

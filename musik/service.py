@@ -58,11 +58,12 @@ class MusicService:
     @property
     def api(self):
         path = cookie_path(self.store)
-        stamp = path.stat().st_mtime_ns if path.exists() else None
+        account = read_account(self.store)
+        stamp = (path.stat().st_mtime_ns, account) if path.exists() else None
         if self._api is None or stamp != self._auth_stamp:
             from ytmusicapi import YTMusic
             jar = cookie_jar(self.store)
-            self._api = YTMusic(auth=auth_headers(jar) if jar else None, requests_session=TimeoutSession())
+            self._api = YTMusic(auth=auth_headers(jar, account) if jar else None, requests_session=TimeoutSession())
             self._auth_stamp = stamp
         return self._api
 
@@ -134,3 +135,20 @@ def cached_playlists(store):
         return [Track(p["playlistId"], p["title"], "Your playlist", "playlist") for p in data]
     except (OSError, ValueError, KeyError, TypeError):
         return []
+
+
+def save_account(store, account):
+    fd, name = tempfile.mkstemp(dir=store.directory, prefix=".account-")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            json.dump({"index": account}, handle)
+        os.replace(name, store.directory / "account.json")
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def read_account(store):
+    try:
+        return max(0, int(json.loads((store.directory / "account.json").read_text())["index"]))
+    except (OSError, ValueError, TypeError, KeyError):
+        return 0
