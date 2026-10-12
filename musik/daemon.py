@@ -140,7 +140,7 @@ class Daemon:
 
     def snapshot(self):
         p = self.player
-        return {"version": ENGINE_VERSION, "state": asdict(self.state), "position": p.position, "duration": p.duration,
+        return {"version": ENGINE_VERSION, "playback_error": getattr(p, "failure_detail", None), "state": asdict(self.state), "position": p.position, "duration": p.duration,
                 "paused": p.paused, "idle": p.idle, "levels": p.levels, "message": self.message}
 
     async def play(self, track):
@@ -308,7 +308,9 @@ class Daemon:
             if event.get("reason") == "eof":
                 await self.dispatch("next", {"finished": True, "generation": event.get("_musik_generation")})
             elif event.get("reason") == "error":
-                self.message = "mpv could not play this source; try another track"
+                expected = event.get("_musik_generation")
+                if expected is None or expected == getattr(self.player, "play_generation", expected):
+                    self.message = event.get("_musik_error") or "mpv could not open this audio stream. Run musik doctor for diagnostics."
 
     async def run(self):
         directory = runtime_directory(self.store)

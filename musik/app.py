@@ -452,7 +452,7 @@ class Musik(App):
                 else:
                     self.status("End of queue")
             elif event.get("reason") == "error":
-                self.status("mpv could not play this source; try another track")
+                self.status(event.get("_musik_error") or "mpv could not open this audio stream. Run musik doctor for diagnostics.")
 
     def action_search(self):
         self.query_one(Input).focus()

@@ -34,6 +34,8 @@ def doctor(store=None, url=None):
         response = asyncio.run(request(store, 'status'))
         engine = response.get('version', 'older version (restart required)')
         print(f"Background player: {engine}")
+        if response.get('playback_error'):
+            print('Last playback error: ' + response['playback_error'])
     except (OSError, RuntimeError, ValueError):
         print('Background player: stopped')
     saved = cookie_jar(store)

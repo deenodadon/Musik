@@ -17,10 +17,27 @@ FILTERS = {
 }
 
 
+def playback_error(message):
+    """Classify mpv output without returning URLs, headers, or cookies."""
+    text = str(message).lower()
+    if any(marker in text for marker in ("403 forbidden", "http error 403", "server returned 403", "http 403")):
+        return "YouTube's audio server rejected the stream (HTTP 403); its URL or playback token may be invalid."
+    if any(marker in text for marker in ("404 not found", "http error 404", "server returned 404", "http 404")):
+        return "The audio stream was not found (HTTP 404)."
+    if any(marker in text for marker in ("connection timed out", "connection refused", "failed to resolve", "name or service not known")):
+        return "mpv could not connect to the audio server. Check network or proxy settings."
+    if any(marker in text for marker in ("failed to initialize audio", "could not open/initialize audio device", "audio output initialization failed")):
+        return "mpv could not open your audio output device."
+    if any(marker in text for marker in ("failed to recognize file format", "no audio", "unsupported codec", "no streams found")):
+        return "mpv could not decode an audio stream from this source."
+    return None
+
+
 class Player:
     def __init__(self, audio_output: str | None = None, store=None):
         self.store = store or Store()
         self.audio_output = audio_output
+        self.failure_detail = None
         self.public_fallback = False
         self.process = None
         self.writer = None
@@ -67,6 +84,7 @@ class Player:
             else:
                 raise RuntimeError("mpv IPC startup timed out")
             self.task = asyncio.create_task(self._read())
+            await self.command("request_log_messages", "warn")
             for i, prop in enumerate(("time-pos", "duration", "pause", "idle-active")):
                 await self.command("observe_property", i, prop)
             self.visualizer_task = asyncio.create_task(self._levels())
@@ -106,10 +124,17 @@ class Player:
                         self.idle = bool(value)
                     elif message.get("name") == "pause":
                         self.paused = bool(value)
+                elif message.get("event") == "log-message":
+                    detail = playback_error(message.get("text", ""))
+                    if detail:
+                        self.failure_detail = detail
                 elif message.get("event") == "start-file":
                     self.active_generation = self.play_generation
                 elif message.get("event") == "end-file":
                     message["_musik_generation"] = self.active_generation
+                    if message.get("reason") == "error":
+                        self.failure_detail = self.failure_detail or "mpv could not open this audio stream. Run musik doctor for diagnostics."
+                        message["_musik_error"] = self.failure_detail
                     await self.events.put(message)
         finally:
             for future in self.pending.values():
@@ -133,6 +158,7 @@ class Player:
 
     async def play(self, track: Track, state: State):
         self.play_generation += 1
+        self.failure_detail = None
         self.public_fallback = False
         url = track.url
         if track.source != "local":
@@ -149,6 +175,7 @@ class Player:
         else:
             await self.command("set_property", "http-header-fields", [])
         await self.settings(state)
+        self.failure_detail = None
         await self.command("loadfile", url, "replace")
         await self.command("set_property", "pause", False)
 

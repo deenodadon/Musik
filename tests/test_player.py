@@ -50,3 +50,17 @@ async def test_real_mpv_playback_controls_and_eof(tmp_path):
     finally:
         await player.close()
     assert player.process.returncode is not None
+
+
+@pytest.mark.parametrize('message,category', [
+    ('HTTP error 403 Forbidden https://private-stream?secret=COOKIE', 'HTTP 403'),
+    ('Server returned 404 Not Found', 'HTTP 404'),
+    ('Connection timed out', 'network or proxy'),
+    ('Failed to initialize audio', 'audio output device'),
+    ('Failed to recognize file format', 'decode'),
+])
+def test_playback_failure_categories_do_not_expose_stream_data(message, category):
+    from musik.player import playback_error
+    detail = playback_error(message)
+    assert category in detail
+    assert 'private-stream' not in detail and 'COOKIE' not in detail
