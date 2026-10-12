@@ -368,7 +368,7 @@ class Musik(App):
 
 def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
-    parser.add_argument("command", nargs="?", choices=["stop"], help="Stop all Musik playback and shut down its background service")
+    parser.add_argument("command", nargs="?", choices=["start", "stop"], help="Start the terminal interface (default), or stop background playback")
     parser.add_argument("--local", help="Browse a directory of local audio files")
     args = parser.parse_args()
     try:

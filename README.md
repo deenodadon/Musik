@@ -15,12 +15,18 @@ python3 -m venv .venv
 mkdir -p ~/.local/bin
 ln -s "$PWD/.venv/bin/musik" ~/.local/bin/musik
 export PATH="$HOME/.local/bin:$PATH"
-musik --local "$HOME/Music"
+musik
 ```
 
-Make sure `~/.local/bin` is on your shell's PATH in future terminals, or run `~/.local/bin/musik` directly. Omit `--local` to open the YouTube search interface. Public YouTube requests may be restricted by YouTube; local playback requires no account or online service.
+To keep the short command available in future Bash terminals (Nobara's default), add the PATH setting once:
 
-Close the terminal to leave music playing. Reopen `musik` to reconnect, or run `~/.local/bin/musik stop` to stop playback and shut down Musik.
+```sh
+printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> ~/.bashrc
+```
+
+Then simply run `musik` to open the TUI. `musik start` does the same thing; `musik stop` stops background playback. For Zsh, add the PATH setting to `~/.zshrc` instead. Omit `--local` to open the YouTube search interface. Public YouTube requests may be restricted by YouTube; local playback requires no account or online service.
+
+Close the terminal to leave music playing. Reopen `musik` to reconnect, or run `musik stop` to stop playback and shut down Musik.
 
 ## Run
 
@@ -98,7 +104,7 @@ This first version does not include albums/artists/playlist browsing, account li
 .venv/bin/pytest -q
 ```
 
-Eight tests exercise queue persistence, shuffle/repeat, real keyboard flows, measured visualizer levels, actual mpv decoding and controls, terminal hangup survival, background queue advancement, reconnecting, and `musik stop`. The mpv integration test skips only if mpv is absent. Set `MUSIK_MPV` to use a specific executable. The test uses `--ao=null`, so no speaker or audio server is needed.
+Tests exercise queue persistence, shuffle/repeat, real keyboard flows, measured visualizer levels, actual mpv decoding and controls, terminal hangup survival, background queue advancement, reconnecting, and `musik stop`. The mpv integration test skips only if mpv is absent. Set `MUSIK_MPV` to use a specific executable. The test uses `--ao=null`, so no speaker or audio server is needed.
 
 YouTube requests need network access to `music.youtube.com`, `www.youtube.com`, `youtube.com`, `youtubei.googleapis.com` and `*.googlevideo.com`; artwork may use `i.ytimg.com`. In this cloud session, search returned a proxy 403. Required destinations were saved in the environment configuration draft; review/save and publish through environment settings before retrying online validation.
 
