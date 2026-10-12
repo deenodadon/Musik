@@ -23,7 +23,15 @@ jobs:
           node-version: '24'
       - name: Install mpv
         shell: pwsh
-        run: choco install mpv -y --no-progress
+        run: |
+          choco install mpv -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $roots = @("$env:ProgramData/chocolatey/lib", "C:/tools", "$env:ProgramFiles/mpv") | Where-Object { Test-Path $_ }
+          $mpv = Get-ChildItem -Path $roots -Filter mpv.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $mpv) { throw "Installed mpv.exe was not found; playback tests must not be skipped." }
+          "MUSIK_MPV=$($mpv.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $mpv.FullName --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - run: pip install -e '.[test]'
       - name: Parse PowerShell installer
         shell: pwsh

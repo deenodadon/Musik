@@ -26,7 +26,7 @@ def lock_exclusive(handle):
     if os.name == 'nt':
         import msvcrt
         handle.seek(0)
-        if not handle.read(1):
+        if os.fstat(handle.fileno()).st_size == 0:
             handle.write('0')
             handle.flush()
         handle.seek(0)
