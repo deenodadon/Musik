@@ -56,3 +56,14 @@ def test_repeat_song_finished_but_manual_skip_advances_and_modes_persist(tmp_pat
     assert state.advance(finished=True).id == 'a'
     state.cycle_repeat()
     assert state.repeat_mode == 'Off'
+
+
+def test_manual_next_follows_queue_even_with_shuffle(tmp_path, monkeypatch):
+    state = State(queue=[Track(str(i), str(i)) for i in range(4)], index=0, shuffle=True)
+    monkeypatch.setattr('musik.core.random.choice', lambda choices: choices[-1])
+    assert state.advance().id == '1'
+    assert state.advance(-1).id == '0'
+    assert state.advance(finished=True).id == '3'
+    assert state.advance() is None
+    state.repeat = True
+    assert state.advance().id == '0'

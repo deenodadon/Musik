@@ -390,6 +390,8 @@ class Musik(App):
             if operation == "play":
                 self.view = "queue"
             self.refresh_tracks()
+            if operation in ("play", "next", "previous") and self.view == "queue" and self.state.current:
+                self.query_one(DataTable).move_cursor(row=self.state.index)
             self.status(self.player.message)
         except Exception as exc:
             self.status(str(exc))

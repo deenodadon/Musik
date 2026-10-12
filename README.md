@@ -59,7 +59,7 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 
 Press `r` to cycle **Off → Song → Playlist**. Song repeats only the current track, including in background playback; Next still skips it.
 
-Selecting a track already in your queue preserves that queue. With shuffle off, the next track follows its displayed order.
+Selecting a track already in your queue preserves that queue. Manual Next (`n`) and Previous (`p`) always follow the displayed queue order. Shuffle affects automatic advancement when a song finishes.
 
 Click **Queue** at the top (or press `2`) to see your queue. The current track stays highlighted with a ▶ marker while you browse other rows. Enter plays a selected track, Delete removes it, and Shift+Up/Down reorders it.
 
