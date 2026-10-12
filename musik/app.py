@@ -3,6 +3,7 @@ from functools import partial
 import asyncio
 from pathlib import Path
 
+from rich.text import Text
 from textual import on
 from textual.binding import Binding
 from textual.app import App, ComposeResult
@@ -91,6 +92,7 @@ class Musik(App):
         self.catalog_title = "RESULTS"
         self.browse_history = []
         self.results_section = "songs"
+        self.highlight_stamp = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -117,7 +119,7 @@ class Musik(App):
 
     async def on_mount(self):
         table = self.query_one(DataTable)
-        table.add_column("Type", width=8)
+        table.add_column("Type", width=10)
         table.add_columns("Title", "Artist")
         table.fixed_columns = 1
         self.refresh_tracks()
@@ -193,7 +195,7 @@ class Musik(App):
             menu.active = f"menu-{self.view}"
         help_text = self.query_one("#queue-help", Static)
         help_text.display = self.view == "queue"
-        help_text.update("Enter Play · Delete Remove · Shift+↑/↓ Reorder · Selected = current track" if self.state.queue
+        help_text.update("Enter Play · Delete Remove · Shift+↑/↓ Reorder · ▶ = current track" if self.state.queue
                          else "Queue is empty. Search for music and press A to add a track, or Enter to play.")
         tabs = self.query_one("#result-sections", Tabs)
         tabs.display = self.view == "results"
@@ -203,13 +205,25 @@ class Musik(App):
         desired = f"section-{self.results_section}"
         if tabs.active != desired:
             tabs.active = desired
+        cursor_row = table.cursor_row
+        current = self.state.current
+        active = current is not None and not self.player.idle
+        self.highlight_stamp = (self.state.index, current, self.player.idle, self.player.paused)
         table.clear()
         for index, track in enumerate(self.tracks):
             kind = {"youtube": "Song", "video": "Video", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
-            if self.view == "queue" and index == self.state.index:
-                kind = "Selected"
+            is_current = active and (index == self.state.index if self.view == "queue"
+                                    else track.source not in ("artist", "album", "playlist")
+                                    and track.id == current.id and track.url == current.url)
             title = f"{index + 1}. {track.title}" if self.view == "queue" else track.title
-            table.add_row(kind, title, track.artist)
+            if is_current:
+                kind = "Ⅱ Paused" if self.player.paused else "▶ Playing"
+                table.add_row(*(Text(value, style="bold #66d9bb on #203a3a")
+                                for value in (kind, title, track.artist)))
+            else:
+                table.add_row(kind, title, track.artist)
+        if table.row_count:
+            table.move_cursor(row=min(cursor_row, table.row_count - 1))
         heading = self.catalog_title if self.view == "results" else self.view.upper()
         self.query_one("#heading", Static).update(f"{heading} · {len(self.tracks)} items")
 
@@ -401,6 +415,8 @@ class Musik(App):
                 self.ready = False
                 self.exit()
                 return
+        if self.highlight_stamp != (self.state.index, self.state.current, self.player.idle, self.player.paused):
+            self.refresh_tracks()
         self.query_one("#repeat-toggle", Button).label = f"Repeat: {self.state.repeat_mode}"
         track = self.state.current
         p = self.player
@@ -435,6 +451,8 @@ class Musik(App):
     def action_view(self, view):
         self.view = view
         self.refresh_tracks()
+        if view == "queue":
+            self.query_one(DataTable).move_cursor(row=self.state.index if self.state.current else 0)
         self.action_browse()
 
     async def action_enqueue(self):

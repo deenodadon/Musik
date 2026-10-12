@@ -136,7 +136,7 @@ async def test_click_queue_menu_shows_tracks_and_removal(tmp_path):
         app.refresh_tracks()
         table = app.query_one(DataTable)
         assert table.get_row_at(0)[1] == '1. First'
-        assert table.get_row_at(1)[0] == 'Selected'
+        assert table.get_row_at(1)[0].plain == '▶ Playing'
         assert str(app.query_one('#main-menu', Tabs).get_tab('menu-queue').label) == 'Queue (2)'
         table.focus()
         table.move_cursor(row=0)
@@ -159,3 +159,30 @@ async def test_repeat_button_cycles_song_queue_off(tmp_path):
         assert app.state.repeat_mode == 'Playlist'
         await pilot.press('r')
         assert app.state.repeat_mode == 'Off'
+
+
+async def test_playing_highlight_remains_while_browsing_and_tracks_playback(tmp_path):
+    from rich.text import Text
+    player = FakePlayer()
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=player)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.state.queue = [Track('one', 'First'), Track('two', 'Second')]
+        app.state.index = 1
+        app.action_view('queue')
+        table = app.query_one(DataTable)
+        assert table.cursor_row == 1
+        table.move_cursor(row=0)
+        assert isinstance(table.get_row_at(1)[1], Text)
+        assert table.get_row_at(1)[1].style == 'bold #66d9bb on #203a3a'
+        player.paused = True
+        await app.tick()
+        assert table.cursor_row == 0
+        assert table.get_row_at(1)[0].plain == 'Ⅱ Paused'
+        app.state.index = 0
+        player.paused = False
+        await app.tick()
+        assert table.get_row_at(0)[0].plain == '▶ Playing'
+        assert table.get_row_at(1)[0] == 'Song'
+        player.idle = True
+        await app.tick()
+        assert table.get_row_at(0)[0] == 'Song'

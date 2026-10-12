@@ -59,7 +59,7 @@ Press `r` (or click **Repeat**) to cycle **Off → Song → Playlist**. Song rep
 
 Selecting a track already in your queue preserves that queue. With shuffle off, the next track follows its displayed order.
 
-Click **Queue** at the top (or press `2`) to see your queue. Enter plays a selected track, Delete removes it, and Shift+Up/Down reorders it.
+Click **Queue** at the top (or press `2`) to see your queue. The current track stays highlighted with a ▶ marker while you browse other rows. Enter plays a selected track, Delete removes it, and Shift+Up/Down reorders it.
 
 Search a title and open **Videos** to choose from YouTube uploads, covers, remixes, and alternate versions. Paste a YouTube video link into search to select that exact upload. Enter plays its audio.
 
