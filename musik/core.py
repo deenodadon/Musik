@@ -32,6 +32,7 @@ class State:
     volume: int = 70
     speed: float = 1.0
     repeat: bool = False
+    repeat_one: bool = False
     shuffle: bool = False
     equalizer: str = "flat"
 
@@ -39,14 +40,25 @@ class State:
     def current(self) -> Track | None:
         return self.queue[self.index] if 0 <= self.index < len(self.queue) else None
 
-    def advance(self, direction: int = 1) -> Track | None:
+    @property
+    def repeat_mode(self):
+        return "Song" if self.repeat and self.repeat_one else "Queue" if self.repeat else "Off"
+
+    def cycle_repeat(self):
+        mode = self.repeat_mode
+        self.repeat = mode != "Queue"
+        self.repeat_one = mode == "Off"
+
+    def advance(self, direction: int = 1, *, finished: bool = False) -> Track | None:
         if not self.queue:
             return None
+        if finished and self.repeat and self.repeat_one and self.current:
+            return self.current
         if self.shuffle and direction > 0 and len(self.queue) > 1:
             self.index = random.choice([i for i in range(len(self.queue)) if i != self.index])
         else:
             target = self.index + direction
-            if self.repeat:
+            if self.repeat and not self.repeat_one:
                 target %= len(self.queue)
             if not 0 <= target < len(self.queue):
                 return None

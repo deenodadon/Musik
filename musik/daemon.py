@@ -107,7 +107,7 @@ class BackgroundPlayer:
 
     async def settings(self, state):
         await self.rpc("settings", volume=state.volume, speed=state.speed,
-                       equalizer=state.equalizer, shuffle=state.shuffle, repeat=state.repeat)
+                       equalizer=state.equalizer, shuffle=state.shuffle, repeat=state.repeat, repeat_one=state.repeat_one)
 
     async def close(self):
         # Detaching a UI must never stop the music or overwrite daemon-owned state.
@@ -215,7 +215,7 @@ class Daemon:
                 else:
                     self.state.favorites.append(track)
             elif operation in ("next", "previous"):
-                track = self.state.advance(1 if operation == "next" else -1)
+                track = self.state.advance(1 if operation == "next" else -1, finished=bool(args.get("finished", False)))
                 if track:
                     await self.play(track)
                 else:
@@ -235,6 +235,7 @@ class Daemon:
                 self.state.equalizer = args["equalizer"]
                 self.state.shuffle = bool(args["shuffle"])
                 self.state.repeat = bool(args["repeat"])
+                self.state.repeat_one = bool(args.get("repeat_one", False))
                 await self.player.settings(self.state)
                 self.message = f"Volume {self.state.volume}% · Speed {self.state.speed:.2f}× · EQ {self.state.equalizer}"
             elif operation == "command":
@@ -274,7 +275,7 @@ class Daemon:
         while True:
             event = await self.player.events.get()
             if event.get("reason") == "eof":
-                await self.dispatch("next", {})
+                await self.dispatch("next", {"finished": True})
             elif event.get("reason") == "error":
                 self.message = "mpv could not play this source; try another track"
 

@@ -61,3 +61,22 @@ async def test_stale_radio_and_failure_leave_new_selection_intact(tmp_path):
     assert [t.id for t in daemon.state.queue] == ["b"]
     assert daemon.player.played[-1].id == "b"
     assert "Radio unavailable" in daemon.message
+
+
+async def test_background_repeat_song_on_eof_and_manual_next(tmp_path):
+    from musik.core import State
+    daemon = Daemon(Store(tmp_path))
+    daemon.player = FakePlayer()
+    daemon.state = State(queue=[Track('a', 'A'), Track('b', 'B')], index=0,
+                         repeat=True, repeat_one=True, shuffle=True)
+    monitor = asyncio.create_task(daemon.monitor())
+    try:
+        await daemon.player.events.put({'reason': 'eof'})
+        await asyncio.sleep(.05)
+        assert daemon.player.played[-1].id == 'a'
+        assert daemon.state.index == 0
+        await daemon.dispatch('next', {})
+        assert daemon.player.played[-1].id == 'b'
+    finally:
+        monitor.cancel()
+        await asyncio.gather(monitor, return_exceptions=True)

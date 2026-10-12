@@ -55,6 +55,8 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | `s` / `r` / `e` / `v` | Shuffle / repeat / equalizer / speed |
 | Esc / `q` | Focus track list / detach |
 
+Click **Repeat** or press `r` to cycle **Off → Song → Queue**. Song repeats only the current track, including in background playback; Next still skips it.
+
 Click **Queue** at the top (or press `2`) to see your queue. Enter plays a selected track, Delete removes it, and Shift+Up/Down reorders it.
 
 Search a title and open **Videos** to choose from YouTube uploads, covers, remixes, and alternate versions. Paste a YouTube video link into search to select that exact upload. Enter plays its audio.

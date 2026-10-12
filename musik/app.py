@@ -7,7 +7,7 @@ from textual import on
 from textual.binding import Binding
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Footer, Header, Input, Static, Tabs, Tab
+from textual.widgets import DataTable, Footer, Header, Input, Static, Tabs, Tab, Button
 
 from .core import Store, scan_local
 from .player import FILTERS
@@ -40,6 +40,7 @@ class Musik(App):
     #body { height: 1fr; margin: 0 2; }
     #browse { width: 2fr; }
     #side { width: 1fr; margin-left: 2; }
+    #repeat-toggle { height: 3; width: auto; margin: 0 2; }
     #queue-help { height: auto; color: #8899aa; }
     #tracks { height: 1fr; border: round #435674; }
     #lyrics { height: 1fr; border: round #435674; padding: 1; overflow-y: auto; }
@@ -107,6 +108,7 @@ class Musik(App):
             with Vertical(id="side"):
                 yield Static("LYRICS", classes="label")
                 yield Static("Select a song and press L.\n\n1 Results · 2 Queue\n3 Favorites · 4 History\nA Add to queue · Enter Play\nS Shuffle · R Repeat\nE Equalizer · V Speed", id="lyrics", markup=False)
+        yield Button("Repeat: Off", id="repeat-toggle")
         yield Visualizer(id="visualizer", markup=False)
         yield Static("Nothing playing", id="now", markup=False)
         yield Static("Ready to browse", id="status", markup=False)
@@ -396,6 +398,7 @@ class Musik(App):
                 self.ready = False
                 self.exit()
                 return
+        self.query_one("#repeat-toggle", Button).label = f"Repeat: {self.state.repeat_mode}"
         track = self.state.current
         p = self.player
         if track:
@@ -404,7 +407,7 @@ class Musik(App):
             self.query_one("#now", Static).update(
                 f"{'Stopped' if p.idle else 'Paused' if p.paused else 'Playing'}  {track.title} — {track.artist}\n"
                 f"{time(p.position)} / {time(p.duration)}  · Vol {self.state.volume}%  · {self.state.speed:.2f}×\n"
-                f"EQ {self.state.equalizer}  · Shuffle {'on' if self.state.shuffle else 'off'}  · Repeat {'on' if self.state.repeat else 'off'}")
+                f"EQ {self.state.equalizer}  · Shuffle {'on' if self.state.shuffle else 'off'}  · Repeat {self.state.repeat_mode}")
         levels = getattr(p, "levels", [0.0] * 32)
         self.query_one(Visualizer).show_levels([0.0] * 32 if p.paused or p.idle else levels)
         if not track:
@@ -412,7 +415,11 @@ class Musik(App):
         while not p.events.empty():
             event = p.events.get_nowait()
             if event.get("reason") == "eof":
-                await self.action_next()
+                if track := self.state.advance(finished=True):
+                    self.persist()
+                    self.schedule_play(track)
+                else:
+                    self.status("End of queue")
             elif event.get("reason") == "error":
                 self.status("mpv could not play this source; try another track")
 
@@ -514,9 +521,15 @@ class Musik(App):
         self.state.shuffle = not self.state.shuffle
         await self.apply_settings()
 
+    @on(Button.Pressed, "#repeat-toggle")
+    async def repeat_clicked(self):
+        await self.action_repeat()
+
     async def action_repeat(self):
-        self.state.repeat = not self.state.repeat
+        self.state.cycle_repeat()
         await self.apply_settings()
+        self.query_one("#repeat-toggle", Button).label = f"Repeat: {self.state.repeat_mode}"
+        self.status(f"Repeat: {self.state.repeat_mode}")
 
     async def action_remove(self):
         if self.view != "queue":
