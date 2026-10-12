@@ -7,7 +7,7 @@ A terminal music player with audio-reactive bars and persistent background playb
 Run these commands in your terminal:
 
 ```sh
-sudo dnf install -y git python3 python3-pip mpv
+sudo dnf install -y git python3 python3-pip mpv nodejs
 git clone https://github.com/deenodadon/Musik.git
 cd Musik
 python3 -m venv .venv
@@ -30,7 +30,7 @@ Close the terminal to leave music playing. Reopen `musik` to reconnect, or run `
 
 ## Run
 
-Requires Python 3.11+, mpv and an audio output device. Linux and macOS are supported by the Unix socket player; Windows is not supported yet.
+Requires Python 3.11+, mpv and an audio output device. Online YouTube playback also needs Node.js 22+ (or another yt-dlp-supported JavaScript runtime); the challenge solver is installed with Musik. Linux and macOS are supported by the Unix socket player; Windows is not supported yet.
 
 ```sh
 # Install mpv using your package manager first (apt install mpv / brew install mpv).
@@ -195,3 +195,7 @@ Tests exercise queue persistence, shuffle/repeat, real keyboard flows, measured 
 YouTube requests need network access to `music.youtube.com`, `www.youtube.com`, `youtube.com`, `youtubei.googleapis.com` and `*.googlevideo.com`; artwork may use `i.ytimg.com`. In this cloud session, search returned a proxy 403. Required destinations were saved in the environment configuration draft; review/save and publish through environment settings before retrying online validation.
 
 GPL-3.0-or-later. This is an unofficial client, unaffiliated with Google or YouTube.
+
+### YouTube playback errors
+
+Musik enables installed Node, Deno and Bun runtimes and bundles yt-dlp-ejs for YouTube signature challenges. A "page needs to be reloaded" error triggers one retry through supported TV/web clients with the same account session. This does not override content access restrictions. On Nobara, install Node with `sudo dnf install nodejs`, then use `musik stop` and reopen Musik so the playback service sees the new runtime. Public online playback remains subject to YouTube's responses and access checks.

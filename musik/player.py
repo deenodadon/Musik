@@ -7,7 +7,6 @@ import tempfile
 from pathlib import Path
 
 from .core import State, Track, Store
-from .auth import cookie_path, QuietLogger
 from .visualizer import rms_level
 
 FILTERS = {
@@ -124,26 +123,17 @@ class Player:
     async def play(self, track: Track, state: State):
         url = track.url
         if track.source != "local":
-            from yt_dlp import YoutubeDL
-            def resolve():
-                options = {"format": "bestaudio/best", "quiet": True, "no_warnings": True,
-                           "logger": QuietLogger(), "socket_timeout": 20, "noplaylist": True}
-                path = cookie_path(self.store)
-                if path.exists():
-                    # Load into memory; yt-dlp must not rewrite the private cookie file.
-                    from .auth import cookie_jar
-                    jar = cookie_jar(self.store)
-                else:
-                    jar = None
-                with YoutubeDL(options) as ydl:
-                    if jar is not None:
-                        from yt_dlp.cookies import YoutubeDLCookieJar
-                        playback_jar = YoutubeDLCookieJar()
-                        for cookie in jar:
-                            playback_jar.set_cookie(cookie)
-                        ydl.cookiejar = playback_jar
-                    return ydl.extract_info(url, download=False)["url"]
-            url = await asyncio.to_thread(resolve)
+            from .stream import resolve_audio
+            info = await asyncio.to_thread(resolve_audio, url, self.store)
+            url = info["url"]
+            headers = info.get("http_headers") or {}
+            # Preserve playback headers without forwarding authentication cookies
+            # from youtube.com to an audio CDN.
+            fields = [f"{key}: {value}" for key, value in headers.items()
+                      if key.lower() in ("user-agent", "referer", "origin")]
+            await self.command("set_property", "http-header-fields", fields)
+        else:
+            await self.command("set_property", "http-header-fields", [])
         await self.settings(state)
         await self.command("loadfile", url, "replace")
         await self.command("set_property", "pause", False)
