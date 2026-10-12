@@ -119,8 +119,19 @@ def doctor(store=None, url=None):
             print(f'Audio formats available: {len(formats)}')
             if formats:
                 selected = ydl.process_ie_result(data, download=False)
-                for label in probe_stream(selected):
+                labels = probe_stream(selected)
+                for label in labels:
                     print(label)
+                if any('HTTP 403' in label for label in labels):
+                    print('Checking browser-style alternate audio stream…')
+                    from .stream import resolve_audio
+                    try:
+                        alternate = resolve_audio(url, store, alternate_audio=True,
+                                                  rejected_format=selected.get('format_id'))
+                        for label in probe_stream(alternate):
+                            print('Alternate ' + label)
+                    except Exception:
+                        print('Alternate audio stream: unavailable')
     except Exception as error:
         message = str(error).lower()
         category = ('age/account access denied' if any(text in message for text in ('age-restricted', 'confirm your age'))

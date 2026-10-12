@@ -33,10 +33,16 @@ def alternate_audio_selector(rejected_format):
                    and not item.get('has_drm')
                    and (rejected_format is None or item.get('format_id') != rejected_format)]
         audio_only = [item for item in formats if item.get('vcodec') == 'none']
-        candidates = audio_only or formats
-        hls = [item for item in candidates if str(item.get('protocol', '')).startswith('m3u8')]
-        if hls or candidates:
-            yield (hls or candidates)[-1]
+        hls = [item for item in formats if str(item.get('protocol', '')).startswith('m3u8')]
+        audio_hls = [item for item in hls if item.get('vcodec') == 'none']
+        if audio_hls:
+            yield audio_hls[-1]
+        elif hls:
+            # Safari may expose only combined HLS streams. mpv keeps video
+            # disabled; choose the smallest stream to reduce wasted bandwidth.
+            yield hls[0]
+        elif audio_only or formats:
+            yield (audio_only or formats)[-1]
     return select
 
 
@@ -46,10 +52,14 @@ def resolve_audio(url, store, *, alternate_audio=False, rejected_format=None):
     base = extractor_options()
     if alternate_audio:
         base['format'] = alternate_audio_selector(rejected_format)
+        args = dict(base.get('extractor_args', {}))
+        args['youtube'] = dict(args.get('youtube', {}), player_client=['web_safari', 'mweb', 'web'])
+        base['extractor_args'] = args
     saved = cookie_jar(store)
     alternate_args = dict(base.get('extractor_args', {}))
     alternate_args['youtube'] = dict(alternate_args.get('youtube', {}),
-                                    player_client=['tv', 'web'], player_skip=['webpage'])
+                                    player_client=['web_safari', 'tv', 'web'] if alternate_audio else ['tv', 'web'],
+                                    player_skip=[] if alternate_audio else ['webpage'])
     alternate = dict(base, extractor_args=alternate_args)
     routes = [(saved, base), (saved, alternate)]
     login_info = has_playback_login(saved) if saved is not None else False

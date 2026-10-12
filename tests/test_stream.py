@@ -174,3 +174,39 @@ def test_alternate_audio_avoids_rejected_format_and_prefers_audio_hls():
     assert list(alternate_audio_selector('rejected')({'formats': formats}))[0]['format_id'] == 'hls'
     assert list(alternate_audio_selector('hls')({'formats': formats}))[0]['format_id'] == 'rejected'
     assert list(alternate_audio_selector('rejected')({'formats': [formats[2]]})) == []
+
+
+def test_rejected_stream_requests_cookie_capable_safari_for_hls(tmp_path, monkeypatch):
+    import yt_dlp
+    from musik import stream
+    from test_auth import browser_jar
+    saved = browser_jar()
+    monkeypatch.setattr(stream, 'cookie_jar', lambda store: saved)
+    class Extractor:
+        def __init__(self, options):
+            self.options = options
+            assert options['extractor_args']['youtube']['player_client'][0] == 'web_safari'
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def extract_info(self, *args, **kwargs):
+            assert list(self.cookiejar) == list(saved)
+            formats = [
+                {'format_id': 'hls-audio', 'url': 'manifest', 'protocol': 'm3u8_native', 'acodec': 'aac', 'vcodec': 'none'},
+                {'format_id': 'failed', 'url': 'rejected', 'protocol': 'https', 'acodec': 'opus', 'vcodec': 'none'},
+            ]
+            return list(self.options['format']({'formats': formats}))[0]
+    monkeypatch.setattr(yt_dlp, 'YoutubeDL', Extractor)
+    result = resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path),
+                           alternate_audio=True, rejected_format='failed')
+    assert result['format_id'] == 'hls-audio'
+
+
+def test_safari_combined_hls_is_preferred_over_other_rejected_direct_routes():
+    from musik.stream import alternate_audio_selector
+    formats = [
+        {'format_id': 'hls-low', 'url': 'hls', 'protocol': 'm3u8_native', 'acodec': 'aac', 'vcodec': 'h264'},
+        {'format_id': 'other-direct', 'url': 'direct', 'protocol': 'https', 'acodec': 'opus', 'vcodec': 'none'},
+    ]
+    assert list(alternate_audio_selector('failed')({'formats': formats}))[0]['format_id'] == 'hls-low'

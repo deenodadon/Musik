@@ -11,7 +11,7 @@ def test_diagnostics_reports_audio_and_sanitizes_warnings(tmp_path, monkeypatch,
         return {'version': 'test-engine'}
     monkeypatch.setattr(diagnostics, 'request', status)
     monkeypatch.setattr(diagnostics, 'cookie_jar', lambda store: browser_jar())
-    monkeypatch.setattr(diagnostics, 'probe_stream', lambda info: ['Audio server probe: HTTP 403'])
+    monkeypatch.setattr(diagnostics, 'probe_stream', lambda info: ['Audio server probe: HTTP 200'])
     class Extractor:
         def __init__(self, options):
             self.logger = options['logger']
