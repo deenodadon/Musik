@@ -44,6 +44,7 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | Key | Action |
 | --- | --- |
 | `/`, Enter | Search songs/artists/albums; select an artist or album to browse |
+| Songs / Albums / Artists tabs | Browse separate result sections (F6 / F7 / F8) |
 | Backspace | Return to the previous artist/album page |
 | Ctrl+P | Pause/resume, including while searching |
 | Ctrl+Up / Ctrl+Down | Volume up/down |

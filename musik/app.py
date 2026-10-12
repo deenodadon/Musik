@@ -7,7 +7,7 @@ from textual import on
 from textual.binding import Binding
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Footer, Header, Input, Static
+from textual.widgets import DataTable, Footer, Header, Input, Static, Tabs, Tab
 
 from .core import Store, scan_local
 from .player import FILTERS
@@ -51,6 +51,8 @@ class Musik(App):
         Binding("ctrl+p", "pause", "Pause", priority=True),
         ("n", "next", "Next"), ("p", "previous", "Previous"),
         ("a", "enqueue", "Queue +"), ("f", "favorite", "Favorite"),
+        ("f6", "section('songs')", "Songs"), ("f7", "section('albums')", "Albums"),
+        ("f8", "section('artists')", "Artists"),
         ("1", "view('results')", "Results"), ("2", "view('queue')", "Queue"),
         ("5", "playlists", "Playlists"),
         ("ctrl+enter", "play_playlist", "Play collection"),
@@ -85,6 +87,7 @@ class Musik(App):
         self.generation = 0
         self.catalog_title = "RESULTS"
         self.browse_history = []
+        self.results_section = "songs"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -92,6 +95,8 @@ class Musik(App):
         with Horizontal(id="body"):
             with Vertical(id="browse"):
                 yield Static("RESULTS", id="heading", classes="label", markup=False)
+                yield Tabs(Tab("Songs", id="section-songs"), Tab("Albums", id="section-albums"),
+                           Tab("Artists", id="section-artists"), id="result-sections")
                 yield BrowserTable(id="tracks", cursor_type="row")
             with Vertical(id="side"):
                 yield Static("LYRICS", classes="label")
@@ -129,7 +134,29 @@ class Musik(App):
     def tracks(self):
         if self.view == "playlists":
             return self.playlists
-        return self.results if self.view == "results" else getattr(self.state, self.view)
+        if self.view == "results":
+            return [item for item in self.results if self.category(item) == self.results_section]
+        return getattr(self.state, self.view)
+
+    @staticmethod
+    def category(item):
+        return {"artist": "artists", "album": "albums"}.get(item.source, "songs")
+
+    def choose_section(self):
+        self.results_section = next((kind for kind in ("songs", "albums", "artists")
+                                     if any(self.category(item) == kind for item in self.results)), "songs")
+
+    @on(Tabs.TabActivated, "#result-sections")
+    def section_activated(self, event):
+        if event.tab.id != self.query_one("#result-sections", Tabs).active:
+            return
+        self.results_section = event.tab.id.removeprefix("section-")
+        if self.view == "results":
+            self.refresh_tracks()
+
+    def action_section(self, section):
+        self.results_section = section
+        self.action_view("results")
 
     def selected(self):
         row = self.query_one(DataTable).cursor_row
@@ -140,6 +167,14 @@ class Musik(App):
         if not tables:
             return
         table = tables[0]
+        tabs = self.query_one("#result-sections", Tabs)
+        tabs.display = self.view == "results"
+        for section in ("songs", "albums", "artists"):
+            count = sum(self.category(item) == section for item in self.results)
+            tabs.get_tab(f"section-{section}").label = f"{section.title()} ({count})"
+        desired = f"section-{self.results_section}"
+        if tabs.active != desired:
+            tabs.active = desired
         table.clear()
         for track in self.tracks:
             kind = {"youtube": "Song", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
@@ -175,6 +210,7 @@ class Musik(App):
                 self.catalog_title = "RESULTS"
                 self.browse_history = []
                 self.results = results
+                self.choose_section()
                 self.action_view("results")
                 self.status(f"Found {len(results)} tracks")
             except Exception as exc:
@@ -206,7 +242,7 @@ class Musik(App):
 
     def remember_page(self):
         self.browse_history.append((self.view, self.results.copy(), self.catalog_title,
-                                    self.playlist_contents.copy(), self.query_one(DataTable).cursor_row))
+                                    self.playlist_contents.copy(), self.results_section, self.query_one(DataTable).cursor_row))
 
     async def open_catalog(self, track):
         self.generation += 1
@@ -220,6 +256,7 @@ class Musik(App):
                 return False
             self.remember_page()
             self.results = rows
+            self.choose_section()
             self.catalog_title = track.title
             self.playlist_contents = rows.copy() if track.source != "artist" else []
             self.action_view("results")
@@ -237,7 +274,7 @@ class Musik(App):
         if not self.browse_history:
             return
         self.generation += 1
-        view, self.results, self.catalog_title, self.playlist_contents, row = self.browse_history.pop()
+        view, self.results, self.catalog_title, self.playlist_contents, self.results_section, row = self.browse_history.pop()
         self.action_view(view)
         self.query_one(DataTable).move_cursor(row=row)
 
