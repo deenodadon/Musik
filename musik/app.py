@@ -1,4 +1,7 @@
 import argparse
+from importlib.metadata import version
+
+APP_VERSION = version("musik-tui")
 from functools import partial
 import asyncio
 from pathlib import Path
@@ -396,7 +399,10 @@ class Musik(App):
 
     async def tick(self):
         for widget in self.query("#update"):
-            widget.update(read_status(self.store).get("message", ""))
+            message = read_status(self.store).get("message", "")
+            if self.background and self.ready and getattr(self.player, "engine_version", None) != APP_VERSION:
+                message += " · Older background player: run musik stop, then musik"
+            widget.update(message)
         if not list(self.query("#status")):
             return
         if self.background and self.ready:
@@ -609,7 +615,8 @@ class Musik(App):
 
 def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
-    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
+    parser.add_argument("--url", help="YouTube link to check with musik doctor")
     parser.add_argument("--local", help="Browse a directory of local audio files")
     parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default=None, help="Sign-in browser (default: Windows default browser; Brave on Linux)")
     parser.add_argument("--profile", help="Optional browser profile path for musik login")
@@ -618,6 +625,10 @@ def main():
     parser.add_argument("--account", type=int, default=0, help="Browser Google account index for login: 0 first, 1 second, etc.")
     args = parser.parse_args()
     try:
+        if args.command == "doctor":
+            from .diagnostics import doctor
+            doctor(url=args.url)
+            return
         if args.command == "login":
             from .auth import login, interactive_login, login_window, default_browser
             args.browser = args.browser or default_browser()

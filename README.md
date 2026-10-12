@@ -57,6 +57,8 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | Left / Right | Seek 10 seconds when the track list is focused |
 | Esc / `q` | Focus track list / detach |
 
+Playback troubleshooting: run `musik doctor` and share its output. It reports versions, session readiness, and audio-format availability without printing credentials.
+
 Press `r` to cycle **Off → Song → Playlist**. Song repeats only the current track, including in background playback; Next still skips it.
 
 Selecting a track already in your queue preserves that queue. With shuffle off, the next track follows its displayed order.

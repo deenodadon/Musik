@@ -47,7 +47,7 @@ jobs:
       - name: Test Windows playback and background control
         shell: pwsh
         run: |
-          python -m pytest -q tests/test_core.py tests/test_app.py tests/test_catalog.py tests/test_video_search.py tests/test_cli.py tests/test_auth.py tests/test_radio.py tests/test_stream.py tests/test_updater.py tests/test_player.py tests/test_portable.py -o faulthandler_timeout=20 2>&1 | ForEach-Object { $line = [string]$_; Write-Output $line; if ($line -match 'Timeout|Thread|File.*line|Current thread') { Write-Host ('::warning title=Windows runtime trace::' + $line.Replace('%','%25')) } } | Tee-Object -FilePath windows-tests.log
+          python -m pytest -q tests/test_core.py tests/test_app.py tests/test_catalog.py tests/test_video_search.py tests/test_cli.py tests/test_diagnostics.py tests/test_auth.py tests/test_radio.py tests/test_stream.py tests/test_updater.py tests/test_player.py tests/test_portable.py -o faulthandler_timeout=20 2>&1 | ForEach-Object { $line = [string]$_; Write-Output $line; if ($line -match 'Timeout|Thread|File.*line|Current thread') { Write-Host ('::warning title=Windows runtime trace::' + $line.Replace('%','%25')) } } | Tee-Object -FilePath windows-tests.log
           $testExit = $LASTEXITCODE
           if ($testExit -ne 0) {
             python -c "from pathlib import Path; text=Path('windows-tests.log').read_text(encoding='utf-8', errors='replace'); print('::error title=Windows test failure::'+text[-50000:].replace('%','%25').replace('\n','%0A').replace('\r','%0D'))"

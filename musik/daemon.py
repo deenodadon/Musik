@@ -1,5 +1,8 @@
 """Detached per-user playback service and a small Unix-socket JSON protocol."""
 import asyncio
+from importlib.metadata import version
+
+ENGINE_VERSION = version("musik-tui")
 from .platform import lock_exclusive, detached_options
 import hashlib
 import json
@@ -69,6 +72,7 @@ class BackgroundPlayer:
         self.events = asyncio.Queue()
         self.message = ""
         self.supports_repeat_song = None
+        self.engine_version = None
 
     async def start(self):
         try:
@@ -91,6 +95,7 @@ class BackgroundPlayer:
         raise RuntimeError("Background service could not start. Check mpv is installed.")
 
     def update(self, response):
+        self.engine_version = response.get("version")
         self.supports_repeat_song = "repeat_one" in response["state"]
         self.state = decode_state(response["state"])
         for key in ("position", "duration", "paused", "idle", "levels", "message"):
@@ -135,7 +140,7 @@ class Daemon:
 
     def snapshot(self):
         p = self.player
-        return {"state": asdict(self.state), "position": p.position, "duration": p.duration,
+        return {"version": ENGINE_VERSION, "state": asdict(self.state), "position": p.position, "duration": p.duration,
                 "paused": p.paused, "idle": p.idle, "levels": p.levels, "message": self.message}
 
     async def play(self, track):
