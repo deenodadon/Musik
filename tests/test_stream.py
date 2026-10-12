@@ -212,7 +212,7 @@ def test_safari_combined_hls_is_preferred_over_other_rejected_direct_routes():
     assert list(alternate_audio_selector('failed')({'formats': formats}))[0]['format_id'] == 'hls-low'
 
 
-def test_authenticated_helper_starts_with_single_hls_client(tmp_path, monkeypatch):
+def test_authenticated_helper_tries_original_before_hls_fallback(tmp_path, monkeypatch):
     import yt_dlp
     from musik import stream, playback_setup
     from test_auth import browser_jar
@@ -221,15 +221,15 @@ def test_authenticated_helper_starts_with_single_hls_client(tmp_path, monkeypatc
     calls = []
     class Extractor:
         def __init__(self, options):
-            assert options['extractor_args']['youtube']['player_client'] == ['web_safari']
-            assert callable(options['format'])
+            assert options['extractor_args']['youtube']['player_client'] == ['mweb', 'web']
+            assert options['format'] == 'bestaudio/best[acodec!=none]'
         def __enter__(self):
             return self
         def __exit__(self, *args):
             pass
         def extract_info(self, *args, **kwargs):
             calls.append(True)
-            return {'url': 'working-hls'}
+            return {'url': 'working-original'}
     monkeypatch.setattr(yt_dlp, 'YoutubeDL', Extractor)
-    assert resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path))['url'] == 'working-hls'
+    assert resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path))['url'] == 'working-original'
     assert calls == [True]

@@ -46,10 +46,9 @@ def alternate_audio_selector(rejected_format):
     return select
 
 
-def configure_audio_options(base, *, authenticated=False, alternate_audio=False, rejected_format=None):
+def configure_audio_options(base, *, alternate_audio=False, rejected_format=None):
     options = dict(base)
-    prefer_hls = alternate_audio or (authenticated and 'youtubepot-bgutilscript' in base.get('extractor_args', {}))
-    if prefer_hls:
+    if alternate_audio:
         options['format'] = alternate_audio_selector(rejected_format)
         args = dict(base.get('extractor_args', {}))
         args['youtube'] = dict(args.get('youtube', {}), player_client=['web_safari'])
@@ -62,8 +61,7 @@ def resolve_audio(url, store, *, alternate_audio=False, rejected_format=None):
     from yt_dlp.cookies import YoutubeDLCookieJar
     base = extractor_options()
     saved = cookie_jar(store)
-    base = configure_audio_options(base, authenticated=saved is not None,
-                                   alternate_audio=alternate_audio, rejected_format=rejected_format)
+    base = configure_audio_options(base, alternate_audio=alternate_audio, rejected_format=rejected_format)
     prefer_hls = base.get('extractor_args', {}).get('youtube', {}).get('player_client') == ['web_safari']
     alternate_args = dict(base.get('extractor_args', {}))
     alternate_args['youtube'] = dict(alternate_args.get('youtube', {}),

@@ -92,7 +92,7 @@ def doctor(store=None, url=None):
     print('Playback session: ' + ('complete' if saved and has_playback_login(saved) else 'missing or incomplete'))
     from .playback_setup import helper_ready
     print('Playback-token helper: ' + ('ready' if helper_ready() else 'missing; run musik setup-playback'))
-    options = configure_audio_options(extractor_options(), authenticated=saved is not None)
+    options = configure_audio_options(extractor_options())
     print('JavaScript runtimes: ' + (', '.join(options.get('js_runtimes', {})) or 'none'))
     track = store.load().current
     url = url or (track.url if track and track.source != 'local' else None)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "musik-tui"
-version = "0.7.25"
+version = "0.7.26"
 description = "A keyboard-first local and YouTube Music player"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
