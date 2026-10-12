@@ -13,7 +13,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: pytest -q
+      - name: Test Linux playback and plugin host
+        run: |
+          set +e
+          pytest -q > linux-tests.log 2>&1
+          musik_test_status=$?
+          cat linux-tests.log
+          if [ "$musik_test_status" -ne 0 ]; then
+            python -c "from pathlib import Path; text=Path('linux-tests.log').read_text(encoding='utf-8', errors='replace'); print('::error title=Linux test failure::'+text[-50000:].replace('%','%25').replace('\n','%0A').replace('\r','%0D'))"
+          fi
+          exit "$musik_test_status"
       - name: Linux installer smoke test
         run: |
           MUSIK_INSTALL_DIR="$RUNNER_TEMP/musik-install" MUSIK_BIN_DIR="$RUNNER_TEMP/musik-bin" bash scripts/install-linux.sh
