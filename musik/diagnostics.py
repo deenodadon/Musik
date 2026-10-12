@@ -5,7 +5,7 @@ from importlib.metadata import version
 from .auth import cookie_jar, has_playback_login, QuietLogger
 from .core import Store
 from .daemon import request
-from .stream import extractor_options
+from .stream import extractor_options, configure_audio_options
 
 
 class DiagnosticLogger(QuietLogger):
@@ -92,7 +92,7 @@ def doctor(store=None, url=None):
     print('Playback session: ' + ('complete' if saved and has_playback_login(saved) else 'missing or incomplete'))
     from .playback_setup import helper_ready
     print('Playback-token helper: ' + ('ready' if helper_ready() else 'missing; run musik setup-playback'))
-    options = extractor_options()
+    options = configure_audio_options(extractor_options(), authenticated=saved is not None)
     print('JavaScript runtimes: ' + (', '.join(options.get('js_runtimes', {})) or 'none'))
     track = store.load().current
     url = url or (track.url if track and track.source != 'local' else None)

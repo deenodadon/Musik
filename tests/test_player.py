@@ -139,3 +139,34 @@ async def test_hls_uses_track_duration_and_advancing_audio_clock(tmp_path, monke
     assert player.position == 12.5
     player.update_position('audio-pts', 90002.5)
     assert player.position == 2.5
+
+
+async def test_recent_audio_url_is_reused_but_rejected_or_changed_login_is_refreshed(tmp_path, monkeypatch):
+    from musik import stream
+    from musik.auth import cookie_path
+    from musik.core import Store
+    player = Player(store=Store(tmp_path))
+    calls = []
+    def resolve(*args, **kwargs):
+        calls.append(kwargs)
+        return {'url': 'https://example.org/audio', 'format_id': 'audio', 'duration': 200}
+    async def command(*args):
+        pass
+    monkeypatch.setattr(stream, 'resolve_audio', resolve)
+    monkeypatch.setattr(player, 'command', command)
+    track = Track('song', 'Song')
+    await player.play(track, State())
+    await player.play(track, State())
+    assert len(calls) == 1
+    cookie_path(player.store).write_text('changed session')
+    await player.play(track, State())
+    assert len(calls) == 2
+    await player.play(track, State(), retry_stream=True)
+    assert len(calls) == 3 and calls[-1]['alternate_audio'] is True
+
+
+def test_expired_stream_url_is_not_cached(tmp_path):
+    from musik.core import Store
+    player = Player(store=Store(tmp_path))
+    player.cache_audio('key', {'url': 'https://example.org/audio?expire=1'})
+    assert not player.audio_cache

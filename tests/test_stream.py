@@ -210,3 +210,26 @@ def test_safari_combined_hls_is_preferred_over_other_rejected_direct_routes():
         {'format_id': 'other-direct', 'url': 'direct', 'protocol': 'https', 'acodec': 'opus', 'vcodec': 'none'},
     ]
     assert list(alternate_audio_selector('failed')({'formats': formats}))[0]['format_id'] == 'hls-low'
+
+
+def test_authenticated_helper_starts_with_single_hls_client(tmp_path, monkeypatch):
+    import yt_dlp
+    from musik import stream, playback_setup
+    from test_auth import browser_jar
+    monkeypatch.setattr(playback_setup, 'helper_ready', lambda: True)
+    monkeypatch.setattr(stream, 'cookie_jar', lambda store: browser_jar())
+    calls = []
+    class Extractor:
+        def __init__(self, options):
+            assert options['extractor_args']['youtube']['player_client'] == ['web_safari']
+            assert callable(options['format'])
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def extract_info(self, *args, **kwargs):
+            calls.append(True)
+            return {'url': 'working-hls'}
+    monkeypatch.setattr(yt_dlp, 'YoutubeDL', Extractor)
+    assert resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path))['url'] == 'working-hls'
+    assert calls == [True]

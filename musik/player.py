@@ -2,6 +2,8 @@
 import asyncio
 import json
 import math
+import time
+from collections import OrderedDict
 import os
 import shutil
 import tempfile
@@ -62,6 +64,7 @@ class Player:
         self.visualizer_task = None
         self.format_id = None
         self.stream_retry_used = False
+        self.audio_cache = OrderedDict()
 
     async def start(self):
         executable = os.environ.get("MUSIK_MPV") or shutil.which("mpv")
@@ -183,6 +186,34 @@ class Player:
         finally:
             self.pending.pop(request, None)
 
+    def audio_cache_key(self, track):
+        from .auth import cookie_path
+        from .playback_setup import helper_ready
+        paths = (cookie_path(self.store), self.store.directory / 'account.json')
+        stamps = tuple(path.stat().st_mtime_ns if path.exists() else None for path in paths)
+        return track.url, stamps, helper_ready()
+
+    def cache_audio(self, key, info):
+        from urllib.parse import urlparse, parse_qs
+        lifetime = 300.0
+        parsed = urlparse(info.get('url', ''))
+        expiry = parse_qs(parsed.query).get('expire', [None])[0]
+        pieces = parsed.path.split('/')
+        if expiry is None and 'expire' in pieces:
+            index = pieces.index('expire')
+            expiry = pieces[index + 1] if index + 1 < len(pieces) else None
+        if expiry:
+            try:
+                lifetime = min(lifetime, float(expiry) - time.time() - 60)
+            except ValueError:
+                pass
+        if lifetime <= 0:
+            return
+        self.audio_cache[key] = (time.monotonic() + lifetime, info)
+        self.audio_cache.move_to_end(key)
+        while len(self.audio_cache) > 8:
+            self.audio_cache.popitem(last=False)
+
     async def play(self, track: Track, state: State, *, retry_stream=False):
         self.play_generation += 1
         self.position = self.duration = 0.0
@@ -197,12 +228,20 @@ class Player:
         url = track.url
         if track.source != "local":
             from .stream import resolve_audio
+            key = self.audio_cache_key(track)
+            cached = self.audio_cache.get(key)
             if retry_stream:
                 self.stream_retry_used = True
+                self.audio_cache.pop(key, None)
                 info = await asyncio.to_thread(resolve_audio, url, self.store,
                                                alternate_audio=True, rejected_format=self.format_id)
+                self.cache_audio(key, info)
+            elif cached and cached[0] > time.monotonic():
+                info = cached[1]
+                self.audio_cache.move_to_end(key)
             else:
                 info = await asyncio.to_thread(resolve_audio, url, self.store)
+                self.cache_audio(key, info)
             duration = info.get("duration")
             if isinstance(duration, (int, float)) and math.isfinite(duration) and duration > 0 and not info.get("is_live"):
                 self.track_duration = self.duration = duration
