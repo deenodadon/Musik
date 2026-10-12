@@ -103,7 +103,10 @@ class Musik(App):
         yield Footer()
 
     async def on_mount(self):
-        self.query_one(DataTable).add_columns("Title", "Artist", "Type")
+        table = self.query_one(DataTable)
+        table.add_column("Type", width=8)
+        table.add_columns("Title", "Artist")
+        table.fixed_columns = 1
         self.refresh_tracks()
         self.set_interval(0.25, self.tick)
         try:
@@ -140,7 +143,7 @@ class Musik(App):
         table.clear()
         for track in self.tracks:
             kind = {"youtube": "Song", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
-            table.add_row(track.title, track.artist, kind)
+            table.add_row(kind, track.title, track.artist)
         heading = self.catalog_title if self.view == "results" else self.view.upper()
         self.query_one("#heading", Static).update(f"{heading} · {len(self.tracks)} items")
 
