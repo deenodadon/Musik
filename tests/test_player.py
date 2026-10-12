@@ -64,3 +64,25 @@ def test_playback_failure_categories_do_not_expose_stream_data(message, category
     detail = playback_error(message)
     assert category in detail
     assert 'private-stream' not in detail and 'COOKIE' not in detail
+
+
+async def test_audio_retry_refreshes_link_and_excludes_failed_format(tmp_path, monkeypatch):
+    from musik import stream
+    from musik.core import Store
+    calls = []
+    def resolve(url, store, **options):
+        calls.append(options)
+        return {'url': 'https://example.org/audio.m3u8', 'format_id': 'hls',
+                'http_headers': {'User-Agent': 'test-agent', 'Cookie': 'private-cookie'}}
+    monkeypatch.setattr(stream, 'resolve_audio', resolve)
+    player = Player(store=Store(tmp_path))
+    player.format_id = 'failed-format'
+    commands = []
+    async def command(*args):
+        commands.append(args)
+    monkeypatch.setattr(player, 'command', command)
+    await player.play(Track('a', 'A'), State(), retry_stream=True)
+    assert calls == [{'alternate_audio': True, 'rejected_format': 'failed-format'}]
+    assert player.stream_retry_used and player.format_id == 'hls'
+    assert ('loadfile', 'https://example.org/audio.m3u8', 'replace') in commands
+    assert not any('private-cookie' in str(command) for command in commands)

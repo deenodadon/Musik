@@ -20,17 +20,33 @@ def extractor_options():
     return options
 
 
-def resolve_audio(url, store):
+def alternate_audio_selector(rejected_format):
+    def select(context):
+        formats = [item for item in context.get('formats', [])
+                   if item.get('url') and item.get('acodec') not in (None, 'none')
+                   and not item.get('has_drm')
+                   and (rejected_format is None or item.get('format_id') != rejected_format)]
+        audio_only = [item for item in formats if item.get('vcodec') == 'none']
+        candidates = audio_only or formats
+        hls = [item for item in candidates if str(item.get('protocol', '')).startswith('m3u8')]
+        if hls or candidates:
+            yield (hls or candidates)[-1]
+    return select
+
+
+def resolve_audio(url, store, *, alternate_audio=False, rejected_format=None):
     from yt_dlp import YoutubeDL
     from yt_dlp.cookies import YoutubeDLCookieJar
     base = extractor_options()
+    if alternate_audio:
+        base['format'] = alternate_audio_selector(rejected_format)
     saved = cookie_jar(store)
     alternate = dict(base, extractor_args={'youtube': {
         'player_client': ['tv', 'web'], 'player_skip': ['webpage']}})
     routes = [(saved, base), (saved, alternate)]
     login_info = has_playback_login(saved) if saved is not None else False
     age_retry_used = False
-    if saved is not None:
+    if saved is not None and not alternate_audio:
         # A public stream does not require account cookies. Only a session/page
         # reload failure reaches this route; account access denials remain errors.
         routes.append((None, base))

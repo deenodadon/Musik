@@ -308,9 +308,23 @@ class Daemon:
             if event.get("reason") == "eof":
                 await self.dispatch("next", {"finished": True, "generation": event.get("_musik_generation")})
             elif event.get("reason") == "error":
-                expected = event.get("_musik_generation")
-                if expected is None or expected == getattr(self.player, "play_generation", expected):
-                    self.message = event.get("_musik_error") or "mpv could not open this audio stream. Run musik doctor for diagnostics."
+                async with self.lock:
+                    expected = event.get("_musik_generation")
+                    if expected is not None and expected != getattr(self.player, "play_generation", expected):
+                        continue
+                    detail = event.get("_musik_error") or "mpv could not open this audio stream. Run musik doctor for diagnostics."
+                    track = self.state.current
+                    if ("HTTP 403" in detail and track and track.source != "local"
+                            and not getattr(self.player, "stream_retry_used", False)):
+                        self.player.stream_retry_used = True
+                        self.message = "Refreshing audio link and trying an alternate format…"
+                        try:
+                            await self.player.play(track, self.state, retry_stream=True)
+                            self.message = f"Playing {track.title} · alternate audio stream"
+                        except Exception:
+                            self.message = "YouTube rejected the audio stream, and no working alternate format was found. Run musik doctor."
+                    else:
+                        self.message = detail
 
     async def run(self):
         directory = runtime_directory(self.store)

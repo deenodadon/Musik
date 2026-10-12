@@ -55,6 +55,8 @@ class Player:
         self.idle = True
         self.levels = [0.0] * 32
         self.visualizer_task = None
+        self.format_id = None
+        self.stream_retry_used = False
 
     async def start(self):
         executable = os.environ.get("MUSIK_MPV") or shutil.which("mpv")
@@ -156,14 +158,22 @@ class Player:
         finally:
             self.pending.pop(request, None)
 
-    async def play(self, track: Track, state: State):
+    async def play(self, track: Track, state: State, *, retry_stream=False):
         self.play_generation += 1
+        if not retry_stream:
+            self.stream_retry_used = False
         self.failure_detail = None
         self.public_fallback = False
         url = track.url
         if track.source != "local":
             from .stream import resolve_audio
-            info = await asyncio.to_thread(resolve_audio, url, self.store)
+            if retry_stream:
+                self.stream_retry_used = True
+                info = await asyncio.to_thread(resolve_audio, url, self.store,
+                                               alternate_audio=True, rejected_format=self.format_id)
+            else:
+                info = await asyncio.to_thread(resolve_audio, url, self.store)
+            self.format_id = info.get("format_id")
             self.public_fallback = bool(info.get("_musik_public_fallback"))
             url = info["url"]
             headers = info.get("http_headers") or {}

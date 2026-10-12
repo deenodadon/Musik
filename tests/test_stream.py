@@ -161,3 +161,16 @@ def test_unavailable_format_retries_same_session_without_anonymous_fallback(tmp_
         with pytest.raises(RuntimeError, match='playable audio stream'):
             resolve_audio('https://www.youtube.com/watch?v=test', Store(tmp_path))
     assert len(attempts) == 2
+
+
+def test_alternate_audio_avoids_rejected_format_and_prefers_audio_hls():
+    from musik.stream import alternate_audio_selector
+    formats = [
+        {'format_id': 'hls', 'url': 'manifest', 'acodec': 'aac', 'vcodec': 'none', 'protocol': 'm3u8_native'},
+        {'format_id': 'other', 'url': 'other-audio', 'acodec': 'opus', 'vcodec': 'none', 'protocol': 'https'},
+        {'format_id': 'rejected', 'url': 'bad-audio', 'acodec': 'opus', 'vcodec': 'none', 'protocol': 'https'},
+        {'format_id': 'video', 'url': 'video-only', 'acodec': 'none', 'vcodec': 'av1'},
+    ]
+    assert list(alternate_audio_selector('rejected')({'formats': formats}))[0]['format_id'] == 'hls'
+    assert list(alternate_audio_selector('hls')({'formats': formats}))[0]['format_id'] == 'rejected'
+    assert list(alternate_audio_selector('rejected')({'formats': [formats[2]]})) == []

@@ -142,3 +142,30 @@ async def test_stale_end_of_previous_song_does_not_restart_new_selection(tmp_pat
     assert daemon.state.index == 0
     await daemon.dispatch('next', {'finished': True, 'generation': 2})
     assert [t.id for t in daemon.player.played] == ['a']
+
+
+async def test_cdn_rejection_retries_one_alternate_without_changing_queue(tmp_path):
+    from musik.core import State
+    daemon = Daemon(Store(tmp_path))
+    class Player(FakePlayer):
+        stream_retry_used = False
+        async def play(self, track, state, **kwargs):
+            assert kwargs == {'retry_stream': True}
+            self.played.append(track)
+    daemon.player = Player()
+    tracks = [Track('a', 'A'), Track('b', 'B')]
+    daemon.state = State(queue=tracks.copy(), index=0)
+    monitor = asyncio.create_task(daemon.monitor())
+    try:
+        event = {'reason': 'error', '_musik_error': 'Audio server rejected stream (HTTP 403)'}
+        await daemon.player.events.put(event)
+        await asyncio.sleep(.05)
+        assert daemon.player.played == [tracks[0]]
+        assert daemon.state.queue == tracks and daemon.state.index == 0
+        await daemon.player.events.put(event)
+        await asyncio.sleep(.05)
+        assert daemon.player.played == [tracks[0]]
+        assert 'HTTP 403' in daemon.message
+    finally:
+        monitor.cancel()
+        await asyncio.gather(monitor, return_exceptions=True)
