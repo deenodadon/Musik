@@ -103,17 +103,18 @@ This version does not include public album/artist browsing, account write action
 
 ## Sign in and import playlists
 
-On your own computer, sign in at https://music.youtube.com in Firefox (or Chrome/Chromium/Brave/Edge) and complete any age-verification requirements in that browser. Then import that signed-in browser session:
+Run the login command on your own computer. It opens YouTube Music in your chosen browser. Sign in there, complete any age verification, fully quit the browser, and press Enter back in the terminal:
 
 ```sh
-musik login --browser firefox
+musik login --browser brave
 # Other supported examples:
+# musik login --browser firefox
 # musik login --browser chrome
 # musik login --browser chromium
 musik
 ```
 
-If extraction fails, close the browser and retry. Browser profiles and keyring access must be available to your user. Use `--profile /path/to/browser/profile` for a non-default profile. The default Google account in that profile is used.
+To import an already-signed-in session without opening a page or prompting, add `--import-only`. Native and common Flatpak browser launchers are supported; Flatpak profiles are detected when a native profile does not exist. If extraction fails, close the browser and retry. Browser profiles and keyring access must be available to your user. Use `--profile /path/to/browser/profile` for a non-default profile. The default Google account in that profile is used.
 
 Login validates library access and imports playlist names. Press **5** in the TUI to refresh your account playlists; press **Enter** to open one, then **Ctrl+Enter** (or **O**) to play its full ordered queue. Enter on an individual song continues to start song radio. Imports are read-only and do not change the playlists in your Google account.
 

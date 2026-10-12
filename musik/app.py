@@ -435,13 +435,14 @@ def main():
     parser.add_argument("--local", help="Browse a directory of local audio files")
     parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default="firefox", help="Signed-in browser to import for musik login")
     parser.add_argument("--profile", help="Optional browser profile path for musik login")
+    parser.add_argument("--import-only", action="store_true", help="Import an existing browser session without opening the browser or prompting")
     args = parser.parse_args()
     try:
         if args.command == "login":
-            from .auth import login
-            print("Sign in at https://music.youtube.com in your browser first. Complete any age verification there.")
+            from .auth import login, interactive_login
             print("This imports your YouTube session locally; no passwords or cookies are sent to GitHub.")
-            count = login(args.browser, args.profile)
+            flow = login if args.import_only else interactive_login
+            count = flow(args.browser, args.profile)
             print(f"Signed in. Imported {count} playlists. Open musik and press 5.")
             return
         if args.command == "logout":
@@ -456,6 +457,8 @@ def main():
             return
         start_check(Store())
         Musik(local=args.local).run()
+    except KeyboardInterrupt:
+        parser.exit(130, "\nLogin cancelled.\n")
     except (ValueError, OSError, RuntimeError) as exc:
         parser.exit(1, f"Musik: {exc}\n")
 

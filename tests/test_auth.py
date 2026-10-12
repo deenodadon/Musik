@@ -97,3 +97,39 @@ async def test_playback_uses_ytdlp_compatible_cookies_without_rewriting(tmp_path
     await player.play(Track('test', 'Song'), State())
     assert ('loadfile', 'https://example.org/audio', 'replace') in calls
     assert cookie_path(store).read_bytes() == before
+
+
+def test_brave_login_opens_browser_then_waits_before_import(monkeypatch):
+    from musik import auth
+    events = []
+    monkeypatch.setattr(auth, 'open_sign_in', lambda browser: events.append(('open', browser)) or True)
+    monkeypatch.setattr('builtins.input', lambda prompt: events.append(('wait',)) or '')
+    monkeypatch.setattr(auth, 'login', lambda browser, profile, store: events.append(('import', browser)) or 4)
+    assert auth.interactive_login('brave') == 4
+    assert events == [('open', 'brave'), ('wait',), ('import', 'brave')]
+
+
+def test_brave_native_launcher_and_manual_fallback(monkeypatch):
+    import shutil
+    import subprocess
+    from musik.auth import open_sign_in
+    calls = []
+    monkeypatch.setattr(shutil, 'which', lambda name: '/usr/bin/brave-browser' if name == 'brave-browser' else None)
+    monkeypatch.setattr(subprocess, 'Popen', lambda args, **kwargs: calls.append(args))
+    assert open_sign_in('brave') is True
+    assert calls == [['/usr/bin/brave-browser', 'https://music.youtube.com/']]
+    monkeypatch.setattr(shutil, 'which', lambda name: None)
+    assert open_sign_in('brave') is False
+
+
+def test_brave_flatpak_launcher(monkeypatch):
+    import shutil
+    import subprocess
+    from types import SimpleNamespace
+    from musik.auth import open_sign_in
+    calls = []
+    monkeypatch.setattr(shutil, 'which', lambda name: '/usr/bin/flatpak' if name == 'flatpak' else None)
+    monkeypatch.setattr(subprocess, 'run', lambda args, **kwargs: SimpleNamespace(returncode=0))
+    monkeypatch.setattr(subprocess, 'Popen', lambda args, **kwargs: calls.append(args))
+    assert open_sign_in('brave') is True
+    assert calls == [['flatpak', 'run', 'com.brave.Browser', 'https://music.youtube.com/']]
