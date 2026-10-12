@@ -132,6 +132,8 @@ class Daemon:
             self.state.remember(track)
             self.store.save(self.state)
             self.message = f"Playing {track.title}"
+            if getattr(self.player, "public_fallback", False):
+                self.message += " · public stream (account library stays signed in)"
         except Exception as exc:
             self.message = f"Playback failed: {exc}"
 

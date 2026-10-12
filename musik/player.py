@@ -20,6 +20,7 @@ class Player:
     def __init__(self, audio_output: str | None = None, store=None):
         self.store = store or Store()
         self.audio_output = audio_output
+        self.public_fallback = False
         self.process = None
         self.writer = None
         self.reader = None
@@ -121,10 +122,12 @@ class Player:
             self.pending.pop(request, None)
 
     async def play(self, track: Track, state: State):
+        self.public_fallback = False
         url = track.url
         if track.source != "local":
             from .stream import resolve_audio
             info = await asyncio.to_thread(resolve_audio, url, self.store)
+            self.public_fallback = bool(info.get("_musik_public_fallback"))
             url = info["url"]
             headers = info.get("http_headers") or {}
             # Preserve playback headers without forwarding authentication cookies

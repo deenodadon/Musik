@@ -199,3 +199,5 @@ GPL-3.0-or-later. This is an unofficial client, unaffiliated with Google or YouT
 ### YouTube playback errors
 
 Musik enables installed Node, Deno and Bun runtimes and bundles yt-dlp-ejs for YouTube signature challenges. A "page needs to be reloaded" error triggers one retry through supported TV/web clients with the same account session. This does not override content access restrictions. On Nobara, install Node with `sudo dnf install nodejs`, then use `musik stop` and reopen Musik so the playback service sees the new runtime. Public online playback remains subject to YouTube's responses and access checks.
+
+If a public song works while signed out but fails with a saved session, Musik retries anonymous playback only after the specific page-reload failure. Your sign-in and imported playlists remain saved. The player status identifies a public-stream fallback. Age, membership and other explicit access denials are not retried anonymously; content that requires authorization still needs an eligible account session.
