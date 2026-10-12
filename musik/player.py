@@ -38,6 +38,7 @@ class Player:
         self.store = store or Store()
         self.audio_output = audio_output
         self.failure_detail = None
+        self.pending_failure = None
         self.public_fallback = False
         self.process = None
         self.writer = None
@@ -129,14 +130,19 @@ class Player:
                 elif message.get("event") == "log-message":
                     detail = playback_error(message.get("text", ""))
                     if detail:
-                        self.failure_detail = detail
+                        self.pending_failure = detail
+                elif message.get("event") == "file-loaded":
+                    self.failure_detail = None
+                    self.pending_failure = None
                 elif message.get("event") == "start-file":
                     self.active_generation = self.play_generation
                 elif message.get("event") == "end-file":
                     message["_musik_generation"] = self.active_generation
                     if message.get("reason") == "error":
-                        self.failure_detail = self.failure_detail or "mpv could not open this audio stream. Run musik doctor for diagnostics."
-                        message["_musik_error"] = self.failure_detail
+                        detail = self.pending_failure or self.failure_detail or "mpv could not open this audio stream. Run musik doctor for diagnostics."
+                        if self.active_generation == self.play_generation:
+                            self.failure_detail = detail
+                        message["_musik_error"] = detail
                     await self.events.put(message)
         finally:
             for future in self.pending.values():
@@ -163,6 +169,7 @@ class Player:
         if not retry_stream:
             self.stream_retry_used = False
         self.failure_detail = None
+        self.pending_failure = None
         self.public_fallback = False
         url = track.url
         if track.source != "local":
@@ -186,6 +193,7 @@ class Player:
             await self.command("set_property", "http-header-fields", [])
         await self.settings(state)
         self.failure_detail = None
+        self.pending_failure = None
         await self.command("loadfile", url, "replace")
         await self.command("set_property", "pause", False)
 

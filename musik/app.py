@@ -414,7 +414,8 @@ class Musik(App):
         elif not helper_ready():
             text = "Playback: player ready; YouTube token helper missing — run musik setup-playback"
         else:
-            text = "Playback: setup ready · player ready · JavaScript ready · token helper ready"
+            state = "paused" if self.player.paused and not self.player.idle else "playing" if not self.player.idle and self.player.position > 0 else "setup ready"
+            text = f"Playback: {state} · player ready · JavaScript ready · token helper ready"
         for widget in self.query("#playback-ready"):
             widget.update(text)
 

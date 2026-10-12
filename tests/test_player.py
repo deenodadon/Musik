@@ -86,3 +86,26 @@ async def test_audio_retry_refreshes_link_and_excludes_failed_format(tmp_path, m
     assert player.stream_retry_used and player.format_id == 'hls'
     assert ('loadfile', 'https://example.org/audio.m3u8', 'replace') in commands
     assert not any('private-cookie' in str(command) for command in commands)
+
+
+@pytest.mark.parametrize('failed', [False, True])
+async def test_recoverable_http_warning_is_not_reported_as_playback_failure(failed):
+    import json
+    player = Player()
+    player.play_generation = 1
+    player.reader = asyncio.StreamReader()
+    messages = [
+        {'event': 'start-file'},
+        {'event': 'log-message', 'text': 'HTTP error 403 Forbidden'},
+    ]
+    messages.append({'event': 'end-file', 'reason': 'error'} if failed else {'event': 'file-loaded'})
+    for message in messages:
+        player.reader.feed_data((json.dumps(message) + '\n').encode())
+    player.reader.feed_eof()
+    await player._read()
+    if failed:
+        assert 'HTTP 403' in player.failure_detail
+        assert 'HTTP 403' in (await player.events.get())['_musik_error']
+    else:
+        assert player.failure_detail is None
+        assert player.pending_failure is None
