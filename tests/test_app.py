@@ -20,7 +20,7 @@ class FakePlayer:
         pass
 
     async def settings(self, state):
-        pass
+        self.volume = state.volume
 
     async def play(self, track, state):
         self.played.append(track)
@@ -63,3 +63,28 @@ async def test_keyboard_search_queue_play_and_restore(tmp_path):
     restored = Store(tmp_path).load()
     assert restored.history[0].title == "Test song"
     assert restored.equalizer == "bass"
+
+
+async def test_volume_shortcuts_with_search_and_track_focus(tmp_path):
+    player = FakePlayer()
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=player)
+    async with app.run_test(size=(110, 40)) as pilot:
+        app.query_one(Input).focus()
+        await pilot.press("ctrl+up")
+        assert app.state.volume == 75
+        assert player.volume == 75
+        assert app.query_one(Input).value == ""
+        await pilot.press("ctrl+down")
+        assert app.state.volume == 70
+        await pilot.press("escape", "plus")
+        assert app.state.volume == 75
+        await pilot.press("equals_sign")
+        assert app.state.volume == 80
+        await pilot.press("minus")
+        assert app.state.volume == 75
+        app.state.volume = 100
+        await pilot.press("ctrl+up")
+        assert player.volume == 100
+        app.state.volume = 0
+        await pilot.press("ctrl+down")
+        assert player.volume == 0

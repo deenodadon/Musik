@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 
 from textual import on
+from textual.binding import Binding
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, Header, Input, Static
@@ -40,7 +41,10 @@ class Musik(App):
         ("delete", "remove", "Remove"), ("shift+up", "move(-1)", "Move up"),
         ("shift+down", "move(1)", "Move down"), ("s", "shuffle", "Shuffle"),
         ("r", "repeat", "Repeat"), ("l", "lyrics", "Lyrics"),
-        ("plus", "volume(5)", "Volume +"), ("minus", "volume(-5)", "Volume -"),
+        Binding("ctrl+up", "volume(5)", "Volume +", priority=True),
+        Binding("ctrl+down", "volume(-5)", "Volume -", priority=True),
+        Binding("plus,equals_sign", "volume(5)", "Volume +", show=False),
+        Binding("minus", "volume(-5)", "Volume -", show=False),
         ("right", "seek(10)", "+10s"), ("left", "seek(-10)", "-10s"),
         ("e", "equalizer", "EQ"), ("v", "speed", "Speed"),
         ("q", "quit", "Detach"), ("escape", "browse", "Browse"),
@@ -219,7 +223,7 @@ class Musik(App):
         levels = getattr(p, "levels", [0.0] * 32)
         self.query_one(Visualizer).show_levels([0.0] * 32 if p.paused or p.idle else levels)
         if not track:
-            self.query_one("#now", Static).update("Nothing playing")
+            self.query_one("#now", Static).update(f"Nothing playing · Vol {self.state.volume}%")
         while not p.events.empty():
             event = p.events.get_nowait()
             if event.get("reason") == "eof":
@@ -303,6 +307,7 @@ class Musik(App):
     async def action_volume(self, delta):
         self.state.volume = max(0, min(100, self.state.volume + delta))
         await self.apply_settings()
+        self.status(f"Volume {self.state.volume}%")
 
     async def action_speed(self):
         speeds = [0.75, 1.0, 1.25, 1.5, 2.0]

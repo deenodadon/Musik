@@ -85,7 +85,8 @@ Only the background service writes shared state. Its private Unix control socket
 | `a` / `f` | Add to queue / toggle local favorite |
 | Space / `n` / `p` | Pause / next / previous |
 | Left / Right | Seek backward / forward 10 seconds |
-| `+` / `-` | Adjust volume in 5% steps |
+| Ctrl+Up / Ctrl+Down | Adjust volume in 5% steps, including while searching |
+| `+` or `=` / `-` | Alternative volume keys when the track list has focus |
 | `s` / `r` | Toggle shuffle / repeat queue |
 | `e` / `v` | Cycle flat, bass, vocal EQ / playback speed |
 | Delete / Shift+Up / Shift+Down | Remove / reorder a queue entry |

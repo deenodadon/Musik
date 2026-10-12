@@ -62,6 +62,9 @@ async def test_tui_detaches_daemon_advances_reconnects_and_cli_stops(tmp_path, m
         reopened = Musik()
         async with reopened.run_test(size=(110, 40)) as pilot:
             assert reopened.state.current.title == "second"
+            await pilot.press("ctrl+up")
+            assert reopened.state.volume == 75
+            assert (await request(store, "status"))["state"]["volume"] == 75
             await pilot.pause(.2)
             assert reopened.player.position >= before
             proc = await asyncio.create_subprocess_exec(sys.executable, "-m", "musik.app", "stop",

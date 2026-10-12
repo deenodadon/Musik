@@ -179,6 +179,7 @@ class Daemon:
                 self.state.shuffle = bool(args["shuffle"])
                 self.state.repeat = bool(args["repeat"])
                 await self.player.settings(self.state)
+                self.message = f"Volume {self.state.volume}% · Speed {self.state.speed:.2f}× · EQ {self.state.equalizer}"
             elif operation == "command":
                 command = args["command"]
                 if not command or command[0] not in ("cycle", "seek", "stop"):
