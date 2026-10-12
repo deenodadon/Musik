@@ -14,7 +14,7 @@ from .daemon import BackgroundPlayer, stop_service
 from .visualizer import Visualizer
 from .updater import start_check, read_status
 from dataclasses import asdict
-from .service import MusicService
+from .service import MusicService, cached_playlists
 
 
 class Musik(App):
@@ -40,6 +40,9 @@ class Musik(App):
         ("n", "next", "Next"), ("p", "previous", "Previous"),
         ("a", "enqueue", "Queue +"), ("f", "favorite", "Favorite"),
         ("1", "view('results')", "Results"), ("2", "view('queue')", "Queue"),
+        ("5", "playlists", "Playlists"),
+        ("ctrl+enter", "play_playlist", "Play playlist"),
+        Binding("o", "play_playlist", "Play playlist", show=False),
         ("3", "view('favorites')", "Favorites"), ("4", "view('history')", "History"),
         ("delete", "remove", "Remove"), ("shift+up", "move(-1)", "Move up"),
         ("shift+down", "move(1)", "Move down"), ("s", "shuffle", "Shuffle"),
@@ -57,7 +60,9 @@ class Musik(App):
         super().__init__()
         self.store = store or Store()
         self.state = self.store.load()
-        self.service = service or MusicService()
+        self.service = service or MusicService(self.store)
+        self.playlists = cached_playlists(self.store)
+        self.playlist_contents = []
         self.player = player or BackgroundPlayer(self.store)
         self.background = getattr(self.player, "background", False)
         self.results = scan_local(Path(local).expanduser()) if local else []
@@ -104,6 +109,8 @@ class Musik(App):
 
     @property
     def tracks(self):
+        if self.view == "playlists":
+            return self.playlists
         return self.results if self.view == "results" else getattr(self.state, self.view)
 
     def selected(self):
@@ -144,6 +151,7 @@ class Musik(App):
                     results = await asyncio.to_thread(self.service.search, query)
                 if generation != self.generation:
                     return
+                self.playlist_contents = []
                 self.results = results
                 self.action_view("results")
                 self.status(f"Found {len(results)} tracks")
@@ -158,6 +166,9 @@ class Musik(App):
         track = self.selected()
         if track is None:
             return
+        if track.source == "playlist":
+            self.run_worker(self.open_playlist(track), group="playlist", exclusive=True)
+            return
         if self.background:
             args = {"index": event.cursor_row} if self.view == "queue" else {"track": asdict(track)}
             self.run_worker(self.remote("play", **args), group="play")
@@ -170,6 +181,39 @@ class Musik(App):
         self.state.index = index
         self.persist()
         self.schedule_play(track)
+
+    async def open_playlist(self, track):
+        self.playlist_contents = []
+        self.status("Loading playlist…")
+        try:
+            self.playlist_contents = await asyncio.to_thread(self.service.playlist_tracks, track)
+            self.results = self.playlist_contents.copy()
+            self.action_view("results")
+            self.status(f"{track.title} · Ctrl+Enter plays the whole playlist")
+        except Exception:
+            self.status("Could not load playlist. Check your session and network access.")
+
+    def action_playlists(self):
+        self.action_view("playlists")
+        async def refresh():
+            try:
+                self.playlists = await asyncio.to_thread(self.service.playlists)
+                if self.view == "playlists":
+                    self.refresh_tracks()
+                self.status(f"Imported {len(self.playlists)} playlists")
+            except Exception:
+                self.status("Playlist import unavailable. Sign in with musik login, then press 5 to retry.")
+        self.run_worker(refresh(), group="library", exclusive=True)
+
+    async def action_play_playlist(self):
+        if self.view == "playlists" and (track := self.selected()):
+            await self.open_playlist(track)
+        if not self.playlist_contents:
+            self.status("Open a playlist with 5 and Enter first")
+            return
+        if self.background:
+            await self.remote("playlist", tracks=[asdict(t) for t in self.playlist_contents])
+            self.action_view("queue")
 
     def schedule_play(self, track):
         self.run_worker(self.play(track), group="play", exclusive=True)
@@ -252,6 +296,9 @@ class Musik(App):
 
     async def action_enqueue(self):
         if track := self.selected():
+            if track.source == "playlist":
+                self.status("Open the playlist with Enter first")
+                return
             if self.background:
                 await self.remote("enqueue", track=asdict(track))
                 return
@@ -262,6 +309,9 @@ class Musik(App):
 
     async def action_favorite(self):
         if track := self.selected():
+            if track.source == "playlist":
+                self.status("Open the playlist with Enter first")
+                return
             if self.background:
                 await self.remote("favorite", track=asdict(track))
                 return
@@ -381,10 +431,25 @@ class Musik(App):
 
 def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
-    parser.add_argument("command", nargs="?", choices=["start", "stop"], help="Start the terminal interface (default), or stop background playback")
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
     parser.add_argument("--local", help="Browse a directory of local audio files")
+    parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default="firefox", help="Signed-in browser to import for musik login")
+    parser.add_argument("--profile", help="Optional browser profile path for musik login")
     args = parser.parse_args()
     try:
+        if args.command == "login":
+            from .auth import login
+            print("Sign in at https://music.youtube.com in your browser first. Complete any age verification there.")
+            print("This imports your YouTube session locally; no passwords or cookies are sent to GitHub.")
+            count = login(args.browser, args.profile)
+            print(f"Signed in. Imported {count} playlists. Open musik and press 5.")
+            return
+        if args.command == "logout":
+            from .auth import logout
+            asyncio.run(stop_service(Store()))
+            logout()
+            print("Signed out and playback stopped. Imported playlist names remain cached locally.")
+            return
         if args.command == "stop":
             stopped = asyncio.run(stop_service(Store()))
             print("Musik stopped." if stopped else "Musik is not running.")

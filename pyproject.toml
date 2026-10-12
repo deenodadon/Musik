@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "musik-tui"
-version = "0.3.0"
+version = "0.4.0"
 description = "A keyboard-first local and YouTube Music player"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
-dependencies = ["textual==8.2.8", "ytmusicapi==1.12.3", "yt-dlp==2026.8.19"]
+dependencies = ["textual==8.2.8", "ytmusicapi==1.12.3", "yt-dlp==2026.8.19", "pycryptodomex==3.23.0", "secretstorage==3.5.0; sys_platform == 'linux'"]
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1", "pytest-asyncio==1.4.0"]

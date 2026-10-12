@@ -111,12 +111,12 @@ class Daemon:
     def __init__(self, store):
         self.store = store
         self.state = store.load()
-        self.player = Player(audio_output=os.environ.get("MUSIK_AUDIO_OUTPUT"))
+        self.player = Player(audio_output=os.environ.get("MUSIK_AUDIO_OUTPUT"), store=store)
         self.lock = asyncio.Lock()
         self.stopping = asyncio.Event()
         self.message = "Background player ready"
         self.tasks = set()
-        self.service = MusicService()
+        self.service = MusicService(store)
         self.radio_task = None
         self.radio_generation = 0
 
@@ -184,6 +184,16 @@ class Daemon:
                     track = Track(**args["track"])
                 self.seed_radio(track)
                 await self.play(track)
+            elif operation == "playlist":
+                tracks = [Track(**item) for item in args["tracks"]]
+                if not tracks or any(t.source not in ("youtube", "local") for t in tracks):
+                    raise ValueError("Playlist has no playable tracks")
+                self.radio_generation += 1
+                if self.radio_task:
+                    self.radio_task.cancel()
+                self.state.queue = tracks
+                self.state.index = 0
+                await self.play(tracks[0])
             elif operation == "enqueue":
                 track = Track(**args["track"])
                 self.state.queue.append(track)

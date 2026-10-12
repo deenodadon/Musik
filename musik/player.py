@@ -6,7 +6,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from .core import State, Track
+from .core import State, Track, Store
+from .auth import cookie_path, QuietLogger
 from .visualizer import rms_level
 
 FILTERS = {
@@ -17,7 +18,8 @@ FILTERS = {
 
 
 class Player:
-    def __init__(self, audio_output: str | None = None):
+    def __init__(self, audio_output: str | None = None, store=None):
+        self.store = store or Store()
         self.audio_output = audio_output
         self.process = None
         self.writer = None
@@ -124,8 +126,22 @@ class Player:
         if track.source != "local":
             from yt_dlp import YoutubeDL
             def resolve():
-                with YoutubeDL({"format": "bestaudio/best", "quiet": True, "no_warnings": True,
-                                "socket_timeout": 20, "noplaylist": True}) as ydl:
+                options = {"format": "bestaudio/best", "quiet": True, "no_warnings": True,
+                           "logger": QuietLogger(), "socket_timeout": 20, "noplaylist": True}
+                path = cookie_path(self.store)
+                if path.exists():
+                    # Load into memory; yt-dlp must not rewrite the private cookie file.
+                    from .auth import cookie_jar
+                    jar = cookie_jar(self.store)
+                else:
+                    jar = None
+                with YoutubeDL(options) as ydl:
+                    if jar is not None:
+                        from yt_dlp.cookies import YoutubeDLCookieJar
+                        playback_jar = YoutubeDLCookieJar()
+                        for cookie in jar:
+                            playback_jar.set_cookie(cookie)
+                        ydl.cookiejar = playback_jar
                     return ydl.extract_info(url, download=False)["url"]
             url = await asyncio.to_thread(resolve)
         await self.settings(state)

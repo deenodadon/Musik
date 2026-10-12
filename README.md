@@ -81,7 +81,8 @@ Only the background service writes shared state. Its private Unix control socket
 | --- | --- |
 | `/` | Focus song search; enter `/local /path/to/music` to scan local files |
 | Enter | Play selected track; add it to the queue if outside the queue |
-| `1` / `2` / `3` / `4` | Search results / queue / favorites / history |
+| `1` / `2` / `3` / `4` / `5` | Search results / queue / favorites / history / account playlists |
+| Ctrl+Enter or `o` | Play the opened playlist in order |
 | `a` / `f` | Add to queue / toggle local favorite |
 | Ctrl+P (anywhere) / Space (track list) | Pause or resume |
 | `n` / `p` | Next / previous |
@@ -96,9 +97,35 @@ Only the background service writes shared state. Its private Unix control socket
 
 State is saved atomically to `$XDG_STATE_HOME/musik/state.json` (default `~/.local/state/musik`). Queue, position in queue, favorites, history and playback settings survive restarts. Reopening the TUI reconnects to active background playback. After the service is stopped, playback resumes only when requested; the exact elapsed song position is not restored. Corrupt state is reported without overwriting it. Local file titles come from filenames; embedded tags are not parsed yet.
 
-Public song search uses ytmusicapi; stream resolution uses yt-dlp; decoding and audio output use mpv. Network errors appear in the TUI. YouTube can restrict requests or require sign-in; authenticated account features and cookies are not implemented. Favorites/history belong to Musik, not your Google account. Lyrics display as text; `.lrc` timestamps are shown, not synchronized.
+Public song search uses ytmusicapi; stream resolution uses yt-dlp; decoding and audio output use mpv. Network errors appear in the TUI. YouTube can restrict requests or require sign-in; sign-in using an imported browser session is supported (see below). Favorites/history belong to Musik; account playlists can be imported. Lyrics display as text; `.lrc` timestamps are shown, not synchronized.
 
-This version does not include albums/artists/playlist browsing, account library sync, gapless lookahead, crossfade, downloads, scrobbling, Discord, MPRIS or shared listening. See [UPSTREAMS.md](UPSTREAMS.md) for source provenance and hosted fork status.
+This version does not include public album/artist browsing, account write actions, gapless lookahead, crossfade, downloads, scrobbling, Discord, MPRIS or shared listening. See [UPSTREAMS.md](UPSTREAMS.md) for source provenance and hosted fork status.
+
+## Sign in and import playlists
+
+On your own computer, sign in at https://music.youtube.com in Firefox (or Chrome/Chromium/Brave/Edge) and complete any age-verification requirements in that browser. Then import that signed-in browser session:
+
+```sh
+musik login --browser firefox
+# Other supported examples:
+# musik login --browser chrome
+# musik login --browser chromium
+musik
+```
+
+If extraction fails, close the browser and retry. Browser profiles and keyring access must be available to your user. Use `--profile /path/to/browser/profile` for a non-default profile. The default Google account in that profile is used.
+
+Login validates library access and imports playlist names. Press **5** in the TUI to refresh your account playlists; press **Enter** to open one, then **Ctrl+Enter** (or **O**) to play its full ordered queue. Enter on an individual song continues to start song radio. Imports are read-only and do not change the playlists in your Google account.
+
+The imported YouTube cookies are stored with owner-only permissions in `$XDG_STATE_HOME/musik/youtube-cookies.txt` (default `~/.local/state/musik/youtube-cookies.txt`). Musik does not store your password, upload the session to GitHub, or extract unrelated-site cookies into that file. Treat the cookie file as a credential and do not share it. Expired sessions require repeating `musik login`.
+
+Authenticated playback uses the same session through yt-dlp. This may allow age-restricted content your account is eligible to access; it does not bypass YouTube age verification, regional restrictions, membership requirements, or other access checks. YouTube may still restrict extraction or require additional playback tokens.
+
+```sh
+musik logout
+```
+
+Logout stops background playback and removes the imported cookies; it does not sign out your browser. Playlist names remain cached locally. Real account sign-in cannot be validated in the cloud without your browser session; tests use synthetic cookies and mocked account responses.
 
 ## Automatic radio queues
 

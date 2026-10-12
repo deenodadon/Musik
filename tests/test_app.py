@@ -101,3 +101,23 @@ async def test_pause_shortcut_works_in_search(tmp_path):
         assert app.query_one(Input).value == ""
         await pilot.press("escape", "space")
         assert player.commands == [("cycle", "pause"), ("cycle", "pause")]
+
+
+async def test_playlist_import_and_open_from_keyboard(tmp_path):
+    class Library(FakeService):
+        def playlists(self):
+            return [Track('PLtest', 'My mix', 'Your playlist', 'playlist')]
+        def playlist_tracks(self, playlist):
+            assert playlist.id == 'PLtest'
+            return [Track('one', 'First'), Track('two', 'Second')]
+    app = Musik(store=Store(tmp_path), service=Library(), player=FakePlayer())
+    async with app.run_test(size=(110, 40)) as pilot:
+        await pilot.press('escape', '5')
+        await pilot.pause()
+        assert app.view == 'playlists'
+        assert app.query_one(DataTable).row_count == 1
+        await pilot.press('enter')
+        await pilot.pause()
+        assert app.view == 'results'
+        assert app.query_one(DataTable).row_count == 2
+        assert [track.id for track in app.playlist_contents] == ['one', 'two']
