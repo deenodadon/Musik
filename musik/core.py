@@ -6,6 +6,7 @@ import random
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from .platform import state_home
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ class State:
 
 class Store:
     def __init__(self, directory: Path | None = None):
-        self.directory = directory or Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "musik"
+        self.directory = directory or Path(os.environ.get("XDG_STATE_HOME", str(state_home()))) / "musik"
         self.path = self.directory / "state.json"
 
     def load(self) -> State:

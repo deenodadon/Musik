@@ -104,6 +104,26 @@ def logout(store=None):
         (store.directory / name).unlink(missing_ok=True)
 
 
+def browser_executable(browser):
+    import shutil
+    names = {'firefox': ('firefox',), 'brave': ('brave-browser', 'brave-browser-stable', 'brave'),
+             'chrome': ('google-chrome', 'google-chrome-stable'),
+             'chromium': ('chromium', 'chromium-browser'), 'edge': ('microsoft-edge', 'microsoft-edge-stable')}
+    found = next((path for name in names[browser] if (path := shutil.which(name))), None)
+    if found or os.name != 'nt':
+        return found
+    relatives = {'brave': 'BraveSoftware/Brave-Browser/Application/brave.exe',
+                 'chrome': 'Google/Chrome/Application/chrome.exe',
+                 'chromium': 'Chromium/Application/chrome.exe',
+                 'edge': 'Microsoft/Edge/Application/msedge.exe', 'firefox': 'Mozilla Firefox/firefox.exe'}
+    for variable in ('PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA'):
+        if root := os.environ.get(variable):
+            path = Path(root) / relatives[browser]
+            if path.is_file():
+                return str(path)
+    return None
+
+
 def open_sign_in(browser, account=0):
     """Launch the requested browser, including common Linux Flatpak installs."""
     import shutil
@@ -114,8 +134,8 @@ def open_sign_in(browser, account=0):
         "chromium": ("chromium", "chromium-browser"), "edge": ("microsoft-edge", "microsoft-edge-stable"),
     }
     url = 'https://music.youtube.com/' if account == 0 else f'https://music.youtube.com/?authuser={account}'
-    arguments = next(([executable, url] for name in commands[browser]
-                      if (executable := shutil.which(name))), None)
+    executable = browser_executable(browser)
+    arguments = [executable, url] if executable else None
     if arguments is None and shutil.which('flatpak'):
         applications = {"brave": "com.brave.Browser", "firefox": "org.mozilla.firefox",
                         "chrome": "com.google.Chrome", "chromium": "org.chromium.Chromium",
@@ -161,7 +181,7 @@ def login_window(browser='brave', store=None, account=0):
                 'edge': ('microsoft-edge', 'microsoft-edge-stable')}
     if browser not in commands:
         raise RuntimeError('The dedicated login window requires Brave, Chrome, Chromium or Edge. For Firefox, use --browser-session.')
-    executable = next((path for name in commands[browser] if (path := shutil.which(name))), None)
+    executable = browser_executable(browser)
     flatpak_id = {'brave': 'com.brave.Browser', 'chrome': 'com.google.Chrome',
                   'chromium': 'org.chromium.Chromium', 'edge': 'com.microsoft.Edge'}[browser]
     prefix = [executable] if executable else None

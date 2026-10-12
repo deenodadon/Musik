@@ -11,3 +11,28 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mpv
       - run: pip install -e '.[test]'
       - run: pytest -q
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install mpv
+        shell: pwsh
+        run: choco install mpv -y --no-progress
+      - run: pip install -e '.[test]'
+      - name: Parse PowerShell installer
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install-windows.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { throw ($errors | Out-String) }
+      - name: Test Windows playback and background control
+        run: python -m pytest -q tests/test_core.py tests/test_app.py tests/test_cli.py tests/test_auth.py tests/test_radio.py tests/test_stream.py tests/test_updater.py tests/test_player.py tests/test_portable.py
+        env:
+          MUSIK_AUTO_UPDATE: '0'

@@ -1,6 +1,6 @@
 """Detached per-user playback service and a small Unix-socket JSON protocol."""
 import asyncio
-import fcntl
+from .platform import lock_exclusive, detached_options
 import hashlib
 import json
 import os
@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import secrets
 from dataclasses import asdict
 from pathlib import Path
 
@@ -19,10 +20,11 @@ from .service import MusicService
 
 def runtime_directory(store):
     identity = hashlib.sha256(str(store.directory.resolve()).encode()).hexdigest()[:16]
-    path = Path(tempfile.gettempdir()) / f"musik-{os.getuid()}-{identity}"
+    user_id = os.getuid() if hasattr(os, "getuid") else "windows"
+    path = Path(tempfile.gettempdir()) / f"musik-{user_id}-{identity}"
     path.mkdir(mode=0o700, exist_ok=True)
     info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+    if not stat.S_ISDIR(info.st_mode) or (os.name != "nt" and (info.st_uid != os.getuid() or info.st_mode & 0o077)):
         raise RuntimeError(f"Unsafe Musik runtime directory: {path}")
     return path
 
@@ -36,9 +38,14 @@ def decode_state(data):
 
 async def request(store, operation, **arguments):
     socket = runtime_directory(store) / "service.sock"
-    reader, writer = await asyncio.open_unix_connection(str(socket), limit=2**20)
+    if os.name == "nt" or os.environ.get('MUSIK_TRANSPORT') == 'tcp':
+        endpoint = json.loads(socket.read_text())
+        reader, writer = await asyncio.open_connection('127.0.0.1', endpoint['port'], limit=2**20)
+    else:
+        endpoint = None
+        reader, writer = await asyncio.open_unix_connection(str(socket), limit=2**20)
     try:
-        writer.write((json.dumps({"operation": operation, "arguments": arguments}) + "\n").encode())
+        writer.write((json.dumps({"operation": operation, "arguments": arguments, "token": endpoint["token"] if endpoint else None}) + "\n").encode())
         await writer.drain()
         response = json.loads(await asyncio.wait_for(reader.readline(), 60))
         if response.get("error"):
@@ -72,7 +79,7 @@ class BackgroundPlayer:
         # All standard streams are detached and setsid disconnects the terminal.
         subprocess.Popen([sys.executable, "-m", "musik.daemon", str(self.store.directory)],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
+                         stderr=subprocess.DEVNULL, close_fds=True, **detached_options(),
                          cwd=self.store.directory)
         for _ in range(100):
             try:
@@ -119,6 +126,7 @@ class Daemon:
         self.service = MusicService(store)
         self.radio_task = None
         self.radio_generation = 0
+        self.token = None
 
     def snapshot(self):
         p = self.player
@@ -244,6 +252,8 @@ class Daemon:
         try:
             message = json.loads(await asyncio.wait_for(reader.readline(), 5))
             try:
+                if self.token is not None and not secrets.compare_digest(str(message.get("token", "")), self.token):
+                    raise RuntimeError("Invalid Musik service credentials")
                 await self.dispatch(message["operation"], message.get("arguments", {}))
                 response = self.snapshot()
             except Exception as exc:
@@ -270,22 +280,31 @@ class Daemon:
 
     async def run(self):
         directory = runtime_directory(self.store)
-        with (directory / "service.lock").open("w") as lock_file:
+        with (directory / "service.lock").open("a+") as lock_file:
             try:
-                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock_exclusive(lock_file)
             except BlockingIOError:
                 return
             socket = directory / "service.sock"
             socket.unlink(missing_ok=True)
             loop = asyncio.get_running_loop()
-            signal.signal(signal.SIGHUP, signal.SIG_IGN)
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(sig, self.stopping.set)
+            if os.name != "nt":
+                signal.signal(signal.SIGHUP, signal.SIG_IGN)
+                for sig in (signal.SIGTERM, signal.SIGINT):
+                    loop.add_signal_handler(sig, self.stopping.set)
             server = monitor = None
             try:
                 await self.player.start()
                 await self.player.settings(self.state)
-                server = await asyncio.start_unix_server(self.connection, str(socket), limit=2**20)
+                if os.name == "nt" or os.environ.get('MUSIK_TRANSPORT') == 'tcp':
+                    self.token = secrets.token_hex(32)
+                    server = await asyncio.start_server(self.connection, '127.0.0.1', 0, limit=2**20)
+                    temporary = directory / 'endpoint.tmp'
+                    temporary.write_text(json.dumps({'port': server.sockets[0].getsockname()[1], 'token': self.token}))
+                    temporary.chmod(0o600)
+                    temporary.replace(socket)
+                else:
+                    server = await asyncio.start_unix_server(self.connection, str(socket), limit=2**20)
                 socket.chmod(0o600)
                 monitor = asyncio.create_task(self.monitor())
                 await self.stopping.wait()

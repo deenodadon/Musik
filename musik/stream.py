@@ -4,12 +4,13 @@ import shutil
 from pathlib import Path
 
 from .auth import cookie_jar, QuietLogger
+from .platform import cache_home
 
 
 def extractor_options():
     options = {'format': 'bestaudio/best', 'quiet': True, 'no_warnings': True,
                'logger': QuietLogger(), 'socket_timeout': 20, 'noplaylist': True,
-               'cachedir': str(Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache'))) / 'musik' / 'yt-dlp')}
+               'cachedir': str(Path(os.environ.get('XDG_CACHE_HOME', str(cache_home()))) / 'musik' / 'yt-dlp')}
     runtimes = {}
     for runtime in ('deno', 'node', 'bun'):
         if executable := shutil.which(runtime):

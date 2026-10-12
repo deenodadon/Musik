@@ -2,6 +2,31 @@
 
 A terminal music player with audio-reactive bars and persistent background playback, combining selected ideas from [Pear Desktop](https://github.com/pear-devs/pear-desktop) and [Limusic](https://github.com/SimoHypers/limusic). Built with Python, Textual and mpv, with no Electron, Tauri or browser window.
 
+## Install on Windows PowerShell
+
+Requires Windows 10/11, PowerShell, and WinGet (App Installer). Download the installer and run it:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-windows.ps1 -OutFile "$env:TEMP\install-musik.ps1"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-musik.ps1"
+```
+
+The installer uses WinGet to install Python 3.12, Git, mpv, Node.js LTS and Brave. It installs Musik in `%LOCALAPPDATA%\Programs\Musik` and adds its `bin` directory to your user PATH. It does not change your permanent PowerShell execution policy. Open a new PowerShell after installation and run:
+
+```powershell
+musik
+musik login
+musik stop
+# Play local music:
+musik --local "$env:USERPROFILE\Music"
+# Clear Musik state, not the installation:
+musik reset
+```
+
+If dependencies are already installed and on PATH, run the installer with `-SkipDependencies`. State is kept in `%LOCALAPPDATA%\musik`, cache under `%LOCALAPPDATA%\Cache\musik`, and reset preserves the installed program and your music files. Credentials inherit your Windows user-directory access controls; Unix permission bits do not enforce Windows ACLs. Background playback uses a detached process, authenticated localhost control, and mpv named pipes. Closing the terminal leaves music playing; `musik stop` shuts it down. Automatic updates install into the private virtual environment.
+
+Windows CI tests cover package import, the installer parser, mpv playback and detached service control. Windows runtime validation cannot be performed in the Linux cloud workspace; check the Windows CI result before treating support as fully verified.
+
 ## Install on Nobara Linux
 
 Run these commands in your terminal:
@@ -30,7 +55,7 @@ Close the terminal to leave music playing. Reopen `musik` to reconnect, or run `
 
 ## Run
 
-Requires Python 3.11+, mpv and an audio output device. Online YouTube playback also needs Node.js 22+ (or another yt-dlp-supported JavaScript runtime); the challenge solver is installed with Musik. Linux and macOS are supported by the Unix socket player; Windows is not supported yet.
+Requires Python 3.11+, mpv and an audio output device. Online YouTube playback also needs Node.js 22+ (or another yt-dlp-supported JavaScript runtime); the challenge solver is installed with Musik. Linux/macOS use Unix sockets. Windows uses mpv named pipes and an authenticated loopback connection for background playback.
 
 ```sh
 # Install mpv using your package manager first (apt install mpv / brew install mpv).

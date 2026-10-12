@@ -31,7 +31,8 @@ def test_login_scopes_private_cookies_and_imports_library(tmp_path, monkeypatch)
     store = Store(tmp_path)
     assert login(store=store) == 1
     path = cookie_path(store)
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if __import__("os").name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert "example.org" not in path.read_text()
     assert (tmp_path / "playlists.json").exists()
     service = MusicService(store)

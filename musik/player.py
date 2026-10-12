@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
 from .core import State, Track, Store
@@ -41,7 +42,7 @@ class Player:
         if not executable:
             raise RuntimeError("mpv is missing. Install mpv or set MUSIK_MPV to its executable.")
         self.temp = tempfile.TemporaryDirectory(prefix="musik-")
-        socket = str(Path(self.temp.name) / "mpv.sock")
+        socket = r"\\.\pipe\musik-" + uuid.uuid4().hex if os.name == "nt" else str(Path(self.temp.name) / "mpv.sock")
         args = [executable, "--no-config", "--idle=yes", "--no-video", "--terminal=no",
                 "--audio-display=no", f"--input-ipc-server={socket}"]
         if self.audio_output:
@@ -53,7 +54,11 @@ class Player:
                 if self.process.returncode is not None:
                     raise RuntimeError("mpv exited during startup")
                 try:
-                    self.reader, self.writer = await asyncio.open_unix_connection(socket)
+                    if os.name == "nt":
+                        from .windows_pipe import Pipe
+                        self.reader = self.writer = await Pipe.connect(socket)
+                    else:
+                        self.reader, self.writer = await asyncio.open_unix_connection(socket)
                     break
                 except (FileNotFoundError, ConnectionRefusedError):
                     await asyncio.sleep(0.05)
@@ -152,6 +157,9 @@ class Player:
         if self.visualizer_task:
             self.visualizer_task.cancel()
             await asyncio.gather(self.visualizer_task, return_exceptions=True)
+        if os.name == "nt" and self.process and self.process.returncode is None:
+            self.process.terminate()
+            await self.process.wait()
         if self.writer:
             self.writer.close()
             await self.writer.wait_closed()

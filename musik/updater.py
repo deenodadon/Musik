@@ -1,5 +1,5 @@
 """Check the official main branch and update only Musik's virtual environment."""
-import fcntl
+from .platform import lock_exclusive, detached_options
 import importlib.metadata
 import json
 import os
@@ -53,7 +53,7 @@ def start_check(store):
         store.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         subprocess.Popen([sys.executable, "-m", "musik.updater", str(store.directory)],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
+                         stderr=subprocess.DEVNULL, close_fds=True, **detached_options(),
                          cwd=store.directory)
 
 
@@ -77,9 +77,9 @@ def install_checkout(source):
 
 def check_and_update(store, remote=REMOTE, installer=install_checkout):
     store.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (store.directory / "update.lock").open("w") as lock:
+    with (store.directory / "update.lock").open("a+") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_exclusive(lock)
         except BlockingIOError:
             return
         previous = read_status(store)
