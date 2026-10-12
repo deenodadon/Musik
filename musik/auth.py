@@ -30,6 +30,17 @@ def auth_headers(jar, account=0):
             "x-goog-authuser": str(account)}
 
 
+def has_playback_login(cookies):
+    from http.cookies import SimpleCookie
+    from yt_dlp.cookies import YoutubeDLCookieJar
+    jar = YoutubeDLCookieJar()
+    for cookie in cookies:
+        jar.set_cookie(cookie)
+    applicable = SimpleCookie(jar.get_cookie_header('https://www.youtube.com') or '')
+    return 'LOGIN_INFO' in applicable and any(name in applicable for name in
+        ('SAPISID', '__Secure-1PAPISID', '__Secure-3PAPISID'))
+
+
 class QuietLogger:
     def debug(self, *args, **kwargs):
         pass
@@ -67,6 +78,8 @@ def login(browser="firefox", profile=None, store=None, account=0):
                 filtered.set_cookie(cookie)
         stage = "session reading"
         headers = auth_headers(filtered, account)
+        if not has_playback_login(filtered):
+            raise RuntimeError("Incomplete YouTube playback session")
         stage = "account validation"
         api = YTMusic(auth=headers, requests_session=TimeoutSession())
         # A successful authenticated library operation validates the session.
@@ -75,7 +88,7 @@ def login(browser="firefox", profile=None, store=None, account=0):
         if stage == "browser extraction":
             detail = f"Browser cookies could not be read ({type(exc).__name__}). Close the browser and unlock your desktop keyring."
         elif stage == "session reading":
-            detail = "No readable signed-in YouTube session was found. Wait for your music library before closing the window; unlock KDE Wallet if requested."
+            detail = "No complete signed-in YouTube playback session was found. Sign in on www.youtube.com and wait for your account library before closing the window; unlock KDE Wallet if requested."
         else:
             from .service import explain_library_error
             detail = explain_library_error(exc)
@@ -232,7 +245,7 @@ def login_window(browser='brave', store=None, account=0):
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(prefix='musik-login-', dir=base) as folder:
         profile = Path(folder)
-        url = f'https://music.youtube.com/?authuser={account}'
+        url = f'https://www.youtube.com/feed/you?authuser={account}'
         if browser == 'firefox':
             (profile / 'user.js').write_text(
                 'user_pref("browser.shell.checkDefaultBrowser", false);\n'
@@ -244,7 +257,7 @@ def login_window(browser='brave', store=None, account=0):
             arguments = prefix + [f'--user-data-dir={profile}', f'--app={url}',
                                   '--no-first-run', '--no-default-browser-check', '--disable-background-mode']
         print('Opening the Musik sign-in window…', flush=True)
-        print('Sign in, complete any Google verification, and wait for your YouTube Music library to appear.', flush=True)
+        print('Sign in to your account on YouTube, complete any Google verification, and wait for your library to appear.', flush=True)
         print('Then close the sign-in window. Musik will import your session and playlists automatically.', flush=True)
         process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL)

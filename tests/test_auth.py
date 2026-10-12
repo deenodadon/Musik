@@ -21,7 +21,12 @@ def browser_jar():
 def test_login_scopes_private_cookies_and_imports_library(tmp_path, monkeypatch):
     import ytmusicapi
     import yt_dlp.cookies
-    monkeypatch.setattr(yt_dlp.cookies, "extract_cookies_from_browser", lambda *a, **kw: browser_jar())
+    def complete_session(*args, **kwargs):
+        jar = browser_jar()
+        jar.set_cookie(http.cookiejar.Cookie(0, "LOGIN_INFO", "test-login", None, False,
+            ".youtube.com", True, True, "/", True, True, None, True, None, None, {}))
+        return jar
+    monkeypatch.setattr(yt_dlp.cookies, "extract_cookies_from_browser", complete_session)
     class API:
         def __init__(self, **kwargs):
             assert "unrelated" not in kwargs["auth"]["cookie"]
@@ -146,7 +151,7 @@ def test_isolated_login_window_imports_after_close_and_cleans_profile(tmp_path, 
     class Window:
         def __init__(self, args, **kwargs):
             events.append('opened')
-            assert '--app=https://music.youtube.com/?authuser=0' in args
+            assert '--app=https://www.youtube.com/feed/you?authuser=0' in args
             profiles.append(__import__('pathlib').Path(next(a.split('=', 1)[1] for a in args if a.startswith('--user-data-dir='))))
             assert profiles[0].is_dir()
             assert '--no-sandbox' not in args
@@ -217,7 +222,7 @@ def test_firefox_login_starts_empty_and_removes_profile(tmp_path, monkeypatch, s
             profiles.append(profile)
             assert list(profile.iterdir()) == [profile / 'user.js']
             assert 'signon.rememberSignons", false' in (profile / 'user.js').read_text()
-            assert args[-1] == 'https://music.youtube.com/?authuser=0'
+            assert args[-1] == 'https://www.youtube.com/feed/you?authuser=0'
             assert not auth.cookie_path(store).exists()
             events.append('opened')
         def wait(self):
@@ -240,3 +245,13 @@ def test_firefox_login_starts_empty_and_removes_profile(tmp_path, monkeypatch, s
             auth.login_window('firefox', store)
         assert not auth.cookie_path(store).exists()
     assert not profiles[-1].exists()
+
+
+def test_music_only_login_does_not_save_incomplete_playback_session(tmp_path, monkeypatch):
+    import yt_dlp.cookies
+    monkeypatch.setattr(yt_dlp.cookies, 'extract_cookies_from_browser', lambda *a, **kw: browser_jar())
+    store = Store(tmp_path)
+    with pytest.raises(RuntimeError, match='complete signed-in YouTube playback session'):
+        login(store=store)
+    assert not cookie_path(store).exists()
+    assert not (tmp_path / 'playlists.json').exists()

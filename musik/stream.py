@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 
-from .auth import cookie_jar, QuietLogger
+from .auth import cookie_jar, QuietLogger, has_playback_login
 from .platform import cache_home
 
 
@@ -27,7 +27,10 @@ def resolve_audio(url, store):
     saved = cookie_jar(store)
     alternate = dict(base, extractor_args={'youtube': {
         'player_client': ['tv', 'web'], 'player_skip': ['webpage']}})
-    routes = [(saved, base), (saved, alternate)]
+    signed_web = dict(base, extractor_args={'youtube': {'player_client': ['web', 'web_music']}})
+    routes = [(saved, signed_web if saved is not None else base), (saved, alternate)]
+    login_info = has_playback_login(saved) if saved is not None else False
+    age_retry_used = False
     if saved is not None:
         # A public stream does not require account cookies. Only a session/page
         # reload failure reaches this route; account access denials remain errors.
@@ -46,6 +49,18 @@ def resolve_audio(url, store):
                 return info
             except Exception as exc:
                 message = str(exc).lower()
+                age_error = any(text in message for text in ('age-restricted', 'confirm your age', 'age verification', 'age-verification'))
+                if age_error:
+                    if saved is None or not login_info:
+                        raise RuntimeError("YouTube playback did not recognize a complete signed-in session. Run musik login again, sign in on YouTube with your age-verified account, then close the sign-in window. Library access alone does not confirm playback authentication.") from None
+                    if not age_retry_used:
+                        age_retry_used = True
+                        # Retry ordinary signed-in web clients with the same
+                        # account cookies. Never retry this denial anonymously.
+                        routes.insert(index + 1, (saved, dict(base, extractor_args={'youtube': {
+                            'player_client': ['web', 'mweb']}})))
+                        continue
+                    raise RuntimeError("YouTube still denied age-restricted playback with your saved account session. Confirm this exact video plays while signed in on youtube.com, then refresh Musik's login. The session may have expired or YouTube may require additional account verification.") from None
                 reload_error = 'page needs to be reloaded' in message
                 if reload_error and index + 1 < len(routes):
                     continue
