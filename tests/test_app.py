@@ -121,3 +121,27 @@ async def test_playlist_import_and_open_from_keyboard(tmp_path):
         assert app.view == 'results'
         assert app.query_one(DataTable).row_count == 2
         assert [track.id for track in app.playlist_contents] == ['one', 'two']
+
+
+async def test_click_queue_menu_shows_tracks_and_removal(tmp_path):
+    from textual.widgets import Tabs
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=FakePlayer())
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.click('#menu-queue')
+        await pilot.pause()
+        assert app.view == 'queue'
+        assert 'Queue is empty' in str(app.query_one('#queue-help', Static).content)
+        app.state.queue = [Track('one', 'First'), Track('two', 'Second')]
+        app.state.index = 1
+        app.refresh_tracks()
+        table = app.query_one(DataTable)
+        assert table.get_row_at(0)[1] == '1. First'
+        assert table.get_row_at(1)[0] == 'Selected'
+        assert str(app.query_one('#main-menu', Tabs).get_tab('menu-queue').label) == 'Queue (2)'
+        table.focus()
+        table.move_cursor(row=0)
+        await pilot.press('delete')
+        assert [track.id for track in app.state.queue] == ['two']
+        await pilot.click('#menu-results')
+        await pilot.pause()
+        assert app.view == 'results'

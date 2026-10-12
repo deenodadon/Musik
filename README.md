@@ -55,6 +55,8 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | `s` / `r` / `e` / `v` | Shuffle / repeat / equalizer / speed |
 | Esc / `q` | Focus track list / detach |
 
+Click **Queue** at the top (or press `2`) to see your queue. Enter plays a selected track, Delete removes it, and Shift+Up/Down reorders it.
+
 Search a title and open **Videos** to choose from YouTube uploads, covers, remixes, and alternate versions. Paste a YouTube video link into search to select that exact upload. Enter plays its audio.
 
 Exact artist-name searches use the artist’s own albums and songs, with at least 25 songs when available. Artist pages show top songs, an all-songs collection when available, and albums/singles. Select a song to start radio, or open an album and press `o` to play it in order.

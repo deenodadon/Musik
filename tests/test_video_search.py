@@ -44,7 +44,7 @@ async def test_video_tab_play_and_direct_link_without_music_catalog(tmp_path):
         await pilot.press('enter')
         await pilot.pause()
         assert app.results_section == 'videos'
-        assert str(app.query_one(Tabs).get_tab('section-videos').label) == 'Videos (1)'
+        assert str(app.query_one("#result-sections", Tabs).get_tab('section-videos').label) == 'Videos (1)'
         await pilot.press('enter')
         await pilot.pause()
         assert player.played[-1].id == 'TL4kq18ibjM'

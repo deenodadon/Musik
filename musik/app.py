@@ -30,6 +30,7 @@ class BrowserTable(DataTable):
 
 
 class Musik(App):
+    AUTO_FOCUS = "#search"
     TITLE = "Musik"
     SUB_TITLE = "Music lives in your terminal"
     CSS = """
@@ -39,6 +40,7 @@ class Musik(App):
     #body { height: 1fr; margin: 0 2; }
     #browse { width: 2fr; }
     #side { width: 1fr; margin-left: 2; }
+    #queue-help { height: auto; color: #8899aa; }
     #tracks { height: 1fr; border: round #435674; }
     #lyrics { height: 1fr; border: round #435674; padding: 1; overflow-y: auto; }
     #now { height: 5; margin: 1 2; padding: 0 1; border: round #66d9bb; }
@@ -91,12 +93,16 @@ class Musik(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        yield Tabs(Tab("Results", id="menu-results"), Tab("Queue", id="menu-queue"),
+                   Tab("Favorites", id="menu-favorites"), Tab("History", id="menu-history"),
+                   Tab("Playlists", id="menu-playlists"), id="main-menu")
         yield Input(placeholder="Search music / YouTube videos, paste a YouTube link, or /local PATH", id="search")
         with Horizontal(id="body"):
             with Vertical(id="browse"):
                 yield Static("RESULTS", id="heading", classes="label", markup=False)
                 yield Tabs(Tab("Songs", id="section-songs"), Tab("Albums", id="section-albums"),
                            Tab("Artists", id="section-artists"), Tab("Videos", id="section-videos"), id="result-sections")
+                yield Static("", id="queue-help", markup=False)
                 yield BrowserTable(id="tracks", cursor_type="row")
             with Vertical(id="side"):
                 yield Static("LYRICS", classes="label")
@@ -146,6 +152,18 @@ class Musik(App):
         self.results_section = next((kind for kind in ("songs", "albums", "artists", "videos")
                                      if any(self.category(item) == kind for item in self.results)), "songs")
 
+    @on(Tabs.TabActivated, "#main-menu")
+    def menu_activated(self, event):
+        if event.tab.id != self.query_one("#main-menu", Tabs).active:
+            return
+        view = event.tab.id.removeprefix("menu-")
+        if view == self.view:
+            return
+        if view == "playlists":
+            self.action_playlists()
+        else:
+            self.action_view(view)
+
     @on(Tabs.TabActivated, "#result-sections")
     def section_activated(self, event):
         if event.tab.id != self.query_one("#result-sections", Tabs).active:
@@ -167,6 +185,14 @@ class Musik(App):
         if not tables:
             return
         table = tables[0]
+        menu = self.query_one("#main-menu", Tabs)
+        menu.get_tab("menu-queue").label = f"Queue ({len(self.state.queue)})"
+        if menu.active != f"menu-{self.view}":
+            menu.active = f"menu-{self.view}"
+        help_text = self.query_one("#queue-help", Static)
+        help_text.display = self.view == "queue"
+        help_text.update("Enter Play · Delete Remove · Shift+↑/↓ Reorder · Selected = current track" if self.state.queue
+                         else "Queue is empty. Search for music and press A to add a track, or Enter to play.")
         tabs = self.query_one("#result-sections", Tabs)
         tabs.display = self.view == "results"
         for section in ("songs", "albums", "artists", "videos"):
@@ -176,9 +202,12 @@ class Musik(App):
         if tabs.active != desired:
             tabs.active = desired
         table.clear()
-        for track in self.tracks:
+        for index, track in enumerate(self.tracks):
             kind = {"youtube": "Song", "video": "Video", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
-            table.add_row(kind, track.title, track.artist)
+            if self.view == "queue" and index == self.state.index:
+                kind = "Selected"
+            title = f"{index + 1}. {track.title}" if self.view == "queue" else track.title
+            table.add_row(kind, title, track.artist)
         heading = self.catalog_title if self.view == "results" else self.view.upper()
         self.query_one("#heading", Static).update(f"{heading} · {len(self.tracks)} items")
 
@@ -353,11 +382,12 @@ class Musik(App):
         if self.background and self.ready:
             try:
                 previous = self.tracks.copy()
+                previous_index = self.state.index
                 await self.player.poll()
                 if not list(self.query("#status")):
                     return
                 self.state = self.player.state
-                if self.tracks != previous:
+                if self.tracks != previous or self.state.index != previous_index:
                     self.refresh_tracks()
                 if self.view == "queue":
                     self.status(self.player.message)
