@@ -4,7 +4,7 @@ from importlib.metadata import version
 
 from .auth import cookie_jar, has_playback_login, QuietLogger
 from .core import Store
-from .daemon import request
+from .daemon import request, read_startup_error
 from .stream import extractor_options, configure_audio_options
 
 
@@ -88,6 +88,8 @@ def doctor(store=None, url=None):
             print('Last playback error: ' + response['playback_error'])
     except (OSError, RuntimeError, ValueError):
         print('Background player: stopped')
+        if error := read_startup_error(store):
+            print('Startup error: ' + error)
     saved = cookie_jar(store)
     print('Playback session: ' + ('complete' if saved and has_playback_login(saved) else 'missing or incomplete'))
     from .playback_setup import helper_ready

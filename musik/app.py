@@ -56,6 +56,14 @@ class Musik(App):
     #update { height: 1; margin: 0 2; color: #8899aa; }
     #status { height: 2; margin: 0 2; color: #66d9bb; }
     .label { height: 2; color: #66d9bb; text-style: bold; }
+    .compact #search { margin: 0 1; border: none; height: 1; }
+    .compact #body { margin: 0 1; }
+    .compact .label { height: 1; }
+    .compact Visualizer { height: 3; margin: 0 1; }
+    .compact #now { margin: 0 1; }
+    .compact #playback-ready { height: 1; margin: 0 1; }
+    .compact #status { height: 1; margin: 0 1; }
+    .compact #update { margin: 0 1; }
     """
     BINDINGS = [
         ("slash", "search", "Search"), ("space", "pause", "Pause"),
@@ -96,6 +104,7 @@ class Musik(App):
         self.results = scan_local(Path(local).expanduser()) if local else []
         self.view = "results"
         self.ready = False
+        self.startup_error = None
         self.play_lock = asyncio.Lock()
         self.generation = 0
         self.catalog_title = "RESULTS"
@@ -126,7 +135,11 @@ class Musik(App):
         yield Static(f"App v{APP_VERSION}", id="update", markup=False)
         yield Footer()
 
+    def on_resize(self, event):
+        self.screen.set_class(event.size.height < 35, "compact")
+
     async def on_mount(self):
+        self.screen.set_class(self.size.height < 35, "compact")
         table = self.query_one(DataTable)
         table.add_column("Type", width=10)
         table.add_columns("Title", "Artist")
@@ -143,7 +156,8 @@ class Musik(App):
             self.ready = True
             self.status("Player ready. Q detaches; musik stop stops background playback.")
         except Exception as exc:
-            self.status(str(exc))
+            self.startup_error = str(exc)
+            self.status(self.startup_error)
         self.refresh_readiness()
 
     def status(self, text):
@@ -402,7 +416,7 @@ class Musik(App):
 
     def refresh_readiness(self):
         if not self.ready:
-            text = "Playback: unavailable — check the error below"
+            text = "Playback: unavailable — " + (self.startup_error or "starting the player")
         elif not self.player.idle and (self.player.paused or self.player.position > 0):
             text = "Playback: paused" if self.player.paused else "Playback: playing"
         elif getattr(self.player, "failure_detail", None):

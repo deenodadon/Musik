@@ -1,27 +1,31 @@
-"""mpv's Windows named pipe, adapted to the player reader/writer interface."""
+"""mpv's full-duplex Windows pipe using native overlapped asynchronous I/O."""
 import asyncio
 
 
 class Pipe:
-    def __init__(self, file):
-        self.file = file
+    def __init__(self, reader, writer):
+        self.reader, self.writer = reader, writer
 
     @classmethod
     async def connect(cls, name):
-        file = await asyncio.to_thread(open, name, 'r+b', buffering=0)
-        return cls(file)
+        loop = asyncio.get_running_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        transport, _ = await loop.create_pipe_connection(lambda: protocol, name)
+        writer = asyncio.StreamWriter(transport, protocol, reader, loop)
+        return cls(reader, writer)
 
     async def readline(self):
-        return await asyncio.to_thread(self.file.readline)
+        return await self.reader.readline()
 
     def write(self, data):
-        self.file.write(data)
+        self.writer.write(data)
 
     async def drain(self):
-        pass
+        await self.writer.drain()
 
     def close(self):
-        self.file.close()
+        self.writer.close()
 
     async def wait_closed(self):
-        pass
+        await self.writer.wait_closed()

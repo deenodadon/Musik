@@ -24,4 +24,4 @@ class Visualizer(Static):
 
     def show_levels(self, levels):
         count = max(1, min(32, (self.content_size.width + 1) // 2))
-        self.update(bars(levels[-count:]))
+        self.update(bars(levels[-count:], height=max(1, min(5, self.content_size.height))))

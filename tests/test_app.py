@@ -224,3 +224,27 @@ async def test_playback_indicator_hides_setup_details_and_prioritizes_playing_au
         player.idle = True
         app.refresh_readiness()
         assert 'failed' in str(widget.content)
+
+
+async def test_short_terminal_keeps_search_results_visible(tmp_path):
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=FakePlayer())
+    async with app.run_test(size=(90, 24)) as pilot:
+        app.query_one(Input).value = 'Song'
+        await pilot.press('enter')
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        assert table.row_count == 1
+        assert table.content_size.height >= 3
+        assert app.screen.has_class('compact')
+
+
+async def test_startup_error_stays_visible_after_search(tmp_path):
+    class FailedPlayer(FakePlayer):
+        async def start(self):
+            raise RuntimeError('mpv startup failed')
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=FailedPlayer())
+    async with app.run_test(size=(100, 30)) as pilot:
+        app.query_one(Input).value = 'Song'
+        await pilot.press('enter')
+        await pilot.pause()
+        assert 'mpv startup failed' in str(app.query_one('#playback-ready', Static).content)

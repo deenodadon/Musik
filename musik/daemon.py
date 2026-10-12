@@ -32,6 +32,13 @@ def runtime_directory(store):
     return path
 
 
+def read_startup_error(store):
+    try:
+        return (runtime_directory(store) / 'startup-error.txt').read_text(encoding='utf-8')
+    except OSError:
+        return None
+
+
 def decode_state(data):
     data = dict(data)
     for key in ("queue", "favorites", "history"):
@@ -83,17 +90,21 @@ class BackgroundPlayer:
             pass
         self.store.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         # All standard streams are detached and setsid disconnects the terminal.
-        subprocess.Popen([sys.executable, "-m", "musik.daemon", str(self.store.directory)],
+        (runtime_directory(self.store) / 'startup-error.txt').unlink(missing_ok=True)
+        process = subprocess.Popen([sys.executable, "-m", "musik.daemon", str(self.store.directory)],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, close_fds=True, **detached_options(),
                          cwd=tempfile.gettempdir())
-        for _ in range(100):
+        deadline = asyncio.get_running_loop().time() + 30
+        while asyncio.get_running_loop().time() < deadline:
             try:
                 await self.poll()
                 return
             except (FileNotFoundError, ConnectionRefusedError):
+                if process.poll() not in (None, 0):
+                    raise RuntimeError(read_startup_error(self.store) or "Background player exited during startup. Run musik doctor.")
                 await asyncio.sleep(.05)
-        raise RuntimeError("Background service could not start. Check mpv is installed.")
+        raise RuntimeError(read_startup_error(self.store) or "Background player startup timed out. Run musik doctor.")
 
     def update(self, response):
         self.engine_version = response.get("version")
@@ -353,8 +364,13 @@ class Daemon:
                     loop.add_signal_handler(sig, self.stopping.set)
             server = monitor = None
             try:
-                await self.player.start()
-                await self.player.settings(self.state)
+                try:
+                    await self.player.start()
+                    await self.player.settings(self.state)
+                except Exception as error:
+                    (directory / 'startup-error.txt').write_text(f"Player startup failed: {type(error).__name__}: {str(error)[:300]}", encoding='utf-8')
+                    raise
+                (directory / 'startup-error.txt').unlink(missing_ok=True)
                 if os.name == "nt" or os.environ.get('MUSIK_TRANSPORT') == 'tcp':
                     self.token = secrets.token_hex(32)
                     server = await asyncio.start_server(self.connection, '127.0.0.1', 0, limit=2**20)

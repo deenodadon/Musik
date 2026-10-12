@@ -6,6 +6,7 @@ import time
 from collections import OrderedDict
 import os
 import tempfile
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -79,8 +80,9 @@ class Player:
                 "--audio-display=no", f"--input-ipc-server={socket}"]
         if self.audio_output:
             args.append(f"--ao={self.audio_output}")
+        launch_options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
         self.process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.DEVNULL,
-                                                            stderr=asyncio.subprocess.DEVNULL)
+                                                            stderr=asyncio.subprocess.DEVNULL, **launch_options)
         try:
             for _ in range(100):
                 if self.process.returncode is not None:
