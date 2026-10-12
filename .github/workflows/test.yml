@@ -56,8 +56,12 @@ jobs:
         shell: pwsh
         run: |
           $install = Join-Path $env:RUNNER_TEMP 'musik-install-validation'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-windows.ps1 -SkipDependencies -InstallDirectory $install
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-windows.ps1 -SkipDependencies -InstallDirectory $install 2>&1 | Tee-Object -FilePath windows-install.log
+          $installExit = $LASTEXITCODE
+          if ($installExit -ne 0) {
+            python -c "from pathlib import Path; text=Path('windows-install.log').read_text(encoding='utf-8', errors='replace'); print('::error title=Windows installer failure::'+text[-20000:].replace('%','%25').replace('\n','%0A').replace('\r','%0D'))"
+            exit $installExit
+          }
           & "$install/bin/musik.cmd" --help
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$install/bin/musik.cmd" stop

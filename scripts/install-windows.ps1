@@ -22,7 +22,7 @@ if (-not $SkipDependencies) {
     }
 }
 # See PATH changes from installers without making the user reopen PowerShell.
-$env:PATH = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+$env:PATH = $env:PATH + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is missing from PATH.' }
 if (-not (Get-Command mpv -ErrorAction SilentlyContinue)) { throw 'mpv.exe is missing from PATH. Reopen PowerShell or add the mpv installation directory to PATH.' }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 22+ is missing from PATH.' }

@@ -7,7 +7,7 @@ A terminal music player with audio-reactive bars and persistent background playb
 Requires Windows 10/11, PowerShell, and WinGet (App Installer). Download the installer and run it:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-windows.ps1 -OutFile "$env:TEMP\install-musik.ps1"
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-windows.ps1 -OutFile "$env:TEMP\install-musik.ps1"
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-musik.ps1"
 ```
 
