@@ -433,17 +433,21 @@ def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
     parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
     parser.add_argument("--local", help="Browse a directory of local audio files")
-    parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default="firefox", help="Signed-in browser to import for musik login")
+    parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default="brave", help="Browser engine for the dedicated login window (default: brave)")
     parser.add_argument("--profile", help="Optional browser profile path for musik login")
+    parser.add_argument("--browser-session", action="store_true", help="Open your existing browser profile instead of an isolated login window")
     parser.add_argument("--import-only", action="store_true", help="Import an existing browser session without opening the browser or prompting")
     parser.add_argument("--account", type=int, default=0, help="Browser Google account index for login: 0 first, 1 second, etc.")
     args = parser.parse_args()
     try:
         if args.command == "login":
-            from .auth import login, interactive_login
+            from .auth import login, interactive_login, login_window
             print("This imports your YouTube session locally; no passwords or cookies are sent to GitHub.")
-            flow = login if args.import_only else interactive_login
-            count = flow(args.browser, args.profile, account=args.account)
+            if args.import_only or args.browser_session or args.profile:
+                flow = login if args.import_only else interactive_login
+                count = flow(args.browser, args.profile, account=args.account)
+            else:
+                count = login_window(args.browser, account=args.account)
             print(f"Signed in to browser account {args.account}. Imported {count} playlists. Open musik and press 5.")
             return
         if args.command == "reset":

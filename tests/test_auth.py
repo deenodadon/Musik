@@ -133,3 +133,43 @@ def test_brave_flatpak_launcher(monkeypatch):
     monkeypatch.setattr(subprocess, 'Popen', lambda args, **kwargs: calls.append(args))
     assert open_sign_in('brave') is True
     assert calls == [['flatpak', 'run', 'com.brave.Browser', 'https://music.youtube.com/']]
+
+
+def test_isolated_login_window_imports_after_close_and_cleans_profile(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+    from musik import auth
+    events = []
+    profiles = []
+    monkeypatch.setattr(shutil, 'which', lambda name: '/usr/bin/brave-browser' if name == 'brave-browser' else None)
+    class Window:
+        def __init__(self, args, **kwargs):
+            events.append('opened')
+            assert '--app=https://music.youtube.com/?authuser=0' in args
+            profiles.append(__import__('pathlib').Path(next(a.split('=', 1)[1] for a in args if a.startswith('--user-data-dir='))))
+            assert profiles[0].is_dir()
+            assert '--no-sandbox' not in args
+        def wait(self, **kwargs):
+            events.append('closed')
+            return 0
+        def poll(self):
+            return 0
+    monkeypatch.setattr(subprocess, 'Popen', Window)
+    def import_session(browser, profile, store, account=0):
+        assert events == ['opened', 'closed']
+        assert str(profiles[0]) == profile
+        assert profiles[0].is_dir()
+        events.append('imported')
+        return 3
+    monkeypatch.setattr(auth, 'login', import_session)
+    assert auth.login_window(store=Store(tmp_path)) == 3
+    assert events == ['opened', 'closed', 'imported']
+    assert not profiles[0].exists()
+
+
+def test_isolated_login_reports_missing_browser(monkeypatch):
+    import shutil
+    from musik.auth import login_window
+    monkeypatch.setattr(shutil, 'which', lambda name: None)
+    with pytest.raises(RuntimeError, match='not installed'):
+        login_window()

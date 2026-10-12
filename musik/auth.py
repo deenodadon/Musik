@@ -130,3 +130,61 @@ def interactive_login(browser, profile=None, store=None, account=0):
         raise RuntimeError("Login needs an interactive terminal. Use --import-only if already signed in.") from None
     print("Importing your session and playlists…", flush=True)
     return login(browser, profile, store) if account == 0 else login(browser, profile, store, account=account)
+
+
+def login_window(browser='brave', store=None, account=0):
+    """Use Chromium app mode with an isolated, temporary sign-in profile.
+
+    This is a real browser window, not an embedded OAuth webview. Google may
+    reject embedded webviews; app mode preserves the browser's normal sandbox.
+    """
+    import shutil
+    import subprocess
+    store = store or Store()
+    commands = {'brave': ('brave-browser', 'brave-browser-stable', 'brave'),
+                'chrome': ('google-chrome', 'google-chrome-stable'),
+                'chromium': ('chromium', 'chromium-browser'),
+                'edge': ('microsoft-edge', 'microsoft-edge-stable')}
+    if browser not in commands:
+        raise RuntimeError('The dedicated login window requires Brave, Chrome, Chromium or Edge. For Firefox, use --browser-session.')
+    executable = next((path for name in commands[browser] if (path := shutil.which(name))), None)
+    flatpak_id = {'brave': 'com.brave.Browser', 'chrome': 'com.google.Chrome',
+                  'chromium': 'org.chromium.Chromium', 'edge': 'com.microsoft.Edge'}[browser]
+    prefix = [executable] if executable else None
+    if prefix is None and shutil.which('flatpak'):
+        result = subprocess.run(['flatpak', 'info', flatpak_id], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=10)
+        if result.returncode == 0:
+            prefix = ['flatpak', 'run', flatpak_id]
+    if prefix is None:
+        raise RuntimeError(f'{browser} is not installed. Install it or choose --browser chrome/chromium; --browser-session imports an existing session.')
+    # Flatpak must be able to see the profile from both inside and outside its
+    # sandbox. Native browsers use a private directory in Musik's data folder.
+    base = store.directory
+    if prefix[0] == 'flatpak':
+        base = Path.home() / '.var/app' / flatpak_id / 'config'
+    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.TemporaryDirectory(prefix='musik-login-', dir=base) as folder:
+        profile = Path(folder)
+        url = f'https://music.youtube.com/?authuser={account}'
+        arguments = prefix + [f'--user-data-dir={profile}', f'--app={url}',
+                              '--no-first-run', '--no-default-browser-check', '--disable-background-mode']
+        print('Opening the Musik sign-in window…', flush=True)
+        print('Sign in, complete any Google verification, and wait for your YouTube Music library to appear.', flush=True)
+        print('Then close the sign-in window. Musik will import your session and playlists automatically.', flush=True)
+        process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+        try:
+            code = process.wait()
+            if code != 0:
+                raise RuntimeError('The login window could not start or closed with an error. Try --browser-session instead.')
+            print('Importing the account from the sign-in window…', flush=True)
+            return login(browser, str(profile), store, account=account)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()

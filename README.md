@@ -103,18 +103,27 @@ This version does not include public album/artist browsing, account write action
 
 ## Sign in and import playlists
 
-Run the login command on your own computer. It opens YouTube Music in your chosen browser. Sign in there, complete any age verification, fully quit the browser, and press Enter back in the terminal:
+Run `musik login` on your computer. It opens a dedicated YouTube Music sign-in window using Brave by default (Chrome, Chromium and Edge also work). This isolated app window has a temporary profile, so your existing browser accounts do not choose the imported account. Sign in, complete any Google verification, wait for the music library to appear, then close the window. Musik imports the session and playlists automatically and removes the temporary browser profile:
 
 ```sh
-musik login --browser brave
+musik login
+musik
+```
+
+A native or Flatpak browser engine must be installed. This uses Chromium's normal sandbox and app mode rather than an embedded Google OAuth webview. A purely text-only Google login is not supported; Google's sign-in page runs in the dedicated window.
+
+To use your existing Brave session instead, including selecting an account already signed into that profile:
+
+```sh
+musik login --browser brave --browser-session
 # Other supported examples:
-# musik login --browser firefox
+# musik login --browser firefox --browser-session
 # musik login --browser chrome
 # musik login --browser chromium
 musik
 ```
 
-To import an already-signed-in session without opening a page or prompting, add `--import-only`. Native and common Flatpak browser launchers are supported; Flatpak profiles are detected when a native profile does not exist. If extraction fails, close the browser and retry. Browser profiles and keyring access must be available to your user. Use `--profile /path/to/browser/profile` for a non-default profile. The first Google account in that profile is used by default. Use `--account 1` for the second account, `--account 2` for the third, and so on; Google's `authuser` number in the browser URL identifies the index.
+To import an already-signed-in session without opening a page or prompting, add `--import-only`. Native and common Flatpak browser launchers are supported; Flatpak profiles are detected when a native profile does not exist. If extraction fails, close the browser and retry. Browser profiles and keyring access must be available to your user. Use `--profile /path/to/browser/profile` for a non-default profile. For existing-profile imports (`--browser-session`), the first Google account in that profile is used by default. Use `--account 1` for the second account, `--account 2` for the third, and so on; Google's `authuser` number in the browser URL identifies the index.
 
 Login validates library access and imports playlist names. Press **5** in the TUI to refresh your account playlists; press **Enter** to open one, then **Ctrl+Enter** (or **O**) to play its full ordered queue. Enter on an individual song continues to start song radio. Imports are read-only and do not change the playlists in your Google account.
 
@@ -146,7 +155,7 @@ musik
 If keeping several accounts signed in, explicitly select the index instead:
 
 ```sh
-musik login --browser brave --account 1
+musik login --browser brave --browser-session --account 1
 ```
 
 This selects the second Google account for playlist/library API access. For authenticated playback that must use a particular account, a browser profile signed in only to that account is the most reliable option. Use `--profile` if needed. Press 5 after login to import the selected account's playlists.
