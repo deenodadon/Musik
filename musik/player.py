@@ -57,6 +57,7 @@ class Player:
         self.entry_generations = {}
         self.online_stream = False
         self.youtube_url = None
+        self.loadfile_has_index = True
         self.resume_offset = 0.0
         self.position = 0.0
         self.duration = 0.0
@@ -103,6 +104,7 @@ class Player:
             else:
                 raise RuntimeError("mpv IPC startup timed out")
             self.task = asyncio.create_task(self._read())
+            await self.detect_loadfile_command()
             await self.command("request_log_messages", "warn")
             for i, prop in enumerate(("time-pos", "duration", "pause", "idle-active", "audio-pts", "demuxer-start-time")):
                 await self.command("observe_property", i, prop)
@@ -110,6 +112,11 @@ class Player:
         except BaseException:
             await self.close()
             raise
+
+    async def detect_loadfile_command(self):
+        commands = await self.command('get_property', 'command-list')
+        loadfile = next(command for command in commands if command['name'] == 'loadfile')
+        self.loadfile_has_index = any(argument.get('name') == 'index' for argument in loadfile['args'])
 
     async def _levels(self):
         while True:
@@ -342,7 +349,10 @@ class Player:
         self.failure_detail = None
         self.pending_failure = None
         if resume > 0:
-            await self.command("loadfile", url, "replace", -1, {"start": str(resume)})
+            arguments = ["loadfile", url, "replace"]
+            if self.loadfile_has_index:
+                arguments.append(-1)
+            await self.command(*arguments, {"start": str(resume)})
         else:
             await self.command("loadfile", url, "replace")
         await self.command("set_property", "pause", False)

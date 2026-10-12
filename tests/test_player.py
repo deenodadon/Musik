@@ -255,3 +255,27 @@ def test_queue_cache_keeps_more_than_eight_prepared_songs(tmp_path):
     for index in range(26):
         player.cache_audio(str(index), {'url': 'https://example.org/audio'})
     assert len(player.audio_cache) == 26
+
+
+@pytest.mark.parametrize('supports_index',[False,True])
+async def test_resume_uses_the_loadfile_protocol_advertised_by_mpv(tmp_path,supports_index):
+    from musik.core import Store
+    player=Player(store=Store(tmp_path))
+    calls=[]
+    async def command(*args):
+        calls.append(args)
+        if args==('get_property','command-list'):
+            arguments=[{'name':'url'},{'name':'flags'}]
+            if supports_index:arguments.append({'name':'index'})
+            arguments.append({'name':'options'})
+            return [{'name':'loadfile','args':arguments}]
+    player.command=command
+    try:
+        await player.detect_loadfile_command()
+        player.position=12.5
+        await player.play(Track(str(tmp_path/'tone.wav'),'Tone',source='local'),State(),retry_stream=True)
+        expected=('loadfile',str(tmp_path/'tone.wav'),'replace')
+        if supports_index:expected+=(-1,)
+        expected+=({'start':'12.5'},)
+        assert expected in calls
+    finally:await player.close()
