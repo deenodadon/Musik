@@ -53,8 +53,7 @@ $bin = Join-Path $InstallDirectory 'bin'
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
 # The launcher remains stable while the updater replaces the installed package.
 $launcher = Join-Path $bin 'musik.cmd'
-$musikExe = Join-Path $venv 'Scripts\musik.exe'
-@('@echo off', ('"' + $musikExe + '" %*'), 'exit /b %errorlevel%') | Set-Content -Path $launcher -Encoding ASCII
+@('@echo off', '"%~dp0..\venv\Scripts\python.exe" -I -m musik.app %*', 'exit /b %errorlevel%') | Set-Content -Path $launcher -Encoding ASCII
 $userPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')
 if ($bin -notin ($userPath -split ';')) {
     [Environment]::SetEnvironmentVariable('Path', (($userPath.TrimEnd(';') + ';' + $bin).TrimStart(';')), 'User')

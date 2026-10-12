@@ -54,7 +54,7 @@ def start_check(store):
         subprocess.Popen([sys.executable, "-m", "musik.updater", str(store.directory)],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, close_fds=True, **detached_options(),
-                         cwd=store.directory)
+                         cwd=tempfile.gettempdir())
 
 
 def run_command(arguments, cwd=None, timeout=180):

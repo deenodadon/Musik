@@ -33,6 +33,13 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install-windows.ps1", [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count) { throw ($errors | Out-String) }
       - name: Test Windows playback and background control
-        run: python -m pytest -q tests/test_core.py tests/test_app.py tests/test_cli.py tests/test_auth.py tests/test_radio.py tests/test_stream.py tests/test_updater.py tests/test_player.py tests/test_portable.py
+        shell: pwsh
+        run: |
+          python -m pytest -q tests/test_core.py tests/test_app.py tests/test_cli.py tests/test_auth.py tests/test_radio.py tests/test_stream.py tests/test_updater.py tests/test_player.py tests/test_portable.py 2>&1 | Tee-Object -FilePath windows-tests.log
+          $testExit = $LASTEXITCODE
+          if ($testExit -ne 0) {
+            python -c "from pathlib import Path; text=Path('windows-tests.log').read_text(encoding='utf-8', errors='replace'); print('::error title=Windows test failure::'+text[-50000:].replace('%','%25').replace('\n','%0A').replace('\r','%0D'))"
+          }
+          exit $testExit
         env:
           MUSIK_AUTO_UPDATE: '0'

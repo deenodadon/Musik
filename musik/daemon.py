@@ -80,7 +80,7 @@ class BackgroundPlayer:
         subprocess.Popen([sys.executable, "-m", "musik.daemon", str(self.store.directory)],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, close_fds=True, **detached_options(),
-                         cwd=self.store.directory)
+                         cwd=tempfile.gettempdir())
         for _ in range(100):
             try:
                 await self.poll()
