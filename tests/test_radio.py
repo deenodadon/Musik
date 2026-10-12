@@ -169,3 +169,30 @@ async def test_cdn_rejection_retries_one_alternate_without_changing_queue(tmp_pa
     finally:
         monitor.cancel()
         await asyncio.gather(monitor, return_exceptions=True)
+
+
+async def test_prepares_every_online_queue_entry_and_suppresses_speculative_errors(tmp_path):
+    daemon = Daemon(Store(tmp_path))
+    daemon.state.queue = [Track('first', 'First'), Track('local', 'Local', source='local'),
+                          Track('broken', 'Broken'), Track('last', 'Last')]
+    calls = []
+    class PreparingPlayer(FakePlayer):
+        async def prepare_audio(self, track):
+            calls.append(track.id)
+            if track.id == 'broken':
+                raise RuntimeError('speculative network failure')
+            if track.id == 'last':
+                daemon.stopping.set()
+    daemon.player = PreparingPlayer()
+    message = daemon.message
+    original_index = daemon.state.index
+    task = asyncio.create_task(daemon.prepare_queue())
+    for _ in range(50):
+        if daemon.stopping.is_set():
+            break
+        await asyncio.sleep(.02)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert calls == ['first', 'broken', 'last']
+    assert daemon.message == message
+    assert daemon.state.index == original_index

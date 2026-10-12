@@ -23,3 +23,20 @@ python -m venv .venv
 On Windows, use `.venv\Scripts\python.exe`. CI exercises Linux and Windows playback, background control, and PowerShell installation. mpv tests use null audio and skip if mpv is absent. Live Google sign-in needs a browser session on your own machine.
 
 `MUSIK_MPV` selects an mpv executable; `MUSIK_AUDIO_OUTPUT=null` enables headless playback. Cloud setup: `bash scripts/bootstrap-cloud.sh` under `/workspace/Musik`, then include `/workspace/tools/bin` in PATH.
+
+
+### Queue preparation and Nuclear catalog
+
+Musik prepares stream links for all queued songs in the background, one lookup
+at a time. Selecting a prepared song reuses its link; selecting a song currently
+being prepared shares that lookup. Up to 256 links are cached; links expire and are refreshed. This reduces
+lookup delays but does not provide guaranteed instant or gapless playback:
+network buffering and audio decoding still take time. Alternate audio is only
+requested after the original stream fails.
+
+`musik plugins` reads the live Nuclear registry. Use
+`musik plugins --plugin nuclear-plugin-bandcamp` to inspect a specific plugin.
+This is a catalog, not an installer or plugin runtime. Nuclear plugins require
+Nuclear's JavaScript host APIs; they cannot execute directly in Musik's Python
+and mpv backend. A provider adapter or a compatible host must be implemented
+before a plugin can be enabled. UI plugins additionally need a terminal interface.

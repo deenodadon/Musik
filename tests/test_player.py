@@ -217,3 +217,41 @@ async def test_late_error_from_replaced_entry_does_not_poison_new_stream():
     assert player.failure_detail is None
     events = [await player.events.get(), await player.events.get()]
     assert events[-1]['_musik_generation'] == 1
+
+
+async def test_queue_preparation_shares_foreground_lookup_without_restarting(tmp_path, monkeypatch):
+    from musik.core import Store
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    def resolve(url, store):
+        calls.append(url)
+        entered.set()
+        release.wait(3)
+        return {'url': 'https://example.org/audio', 'duration': 120}
+    monkeypatch.setattr('musik.stream.resolve_audio', resolve)
+    player = Player(store=Store(tmp_path))
+    commands = []
+    async def command(*args):
+        commands.append(args)
+    player.command = command
+    track = Track('song', 'Song')
+    background = asyncio.create_task(player.prepare_audio(track))
+    assert await asyncio.to_thread(entered.wait, 2)
+    foreground = asyncio.create_task(player.play(track, State()))
+    await asyncio.sleep(.02)
+    release.set()
+    await asyncio.gather(background, foreground)
+    assert calls == [track.url]
+    assert sum(c[0] == 'loadfile' for c in commands) == 1
+    assert player.play_generation == 1
+    await player.prepare_audio(track)
+    assert len(calls) == 1
+
+
+def test_queue_cache_keeps_more_than_eight_prepared_songs(tmp_path):
+    from musik.core import Store
+    player = Player(store=Store(tmp_path))
+    for index in range(26):
+        player.cache_audio(str(index), {'url': 'https://example.org/audio'})
+    assert len(player.audio_cache) == 26

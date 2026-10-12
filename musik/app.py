@@ -655,7 +655,8 @@ class Musik(App):
 
 def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
-    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor", "setup-playback"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor", "setup-playback", "plugins"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
+    parser.add_argument("--plugin", help="Nuclear registry plugin ID to inspect (not install)")
     parser.add_argument("--url", help="YouTube link to check with musik doctor")
     parser.add_argument("--local", help="Browse a directory of local audio files")
     parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default=None, help="Sign-in browser (default: Windows default browser; Brave on Linux)")
@@ -665,6 +666,10 @@ def main():
     parser.add_argument("--account", type=int, default=0, help="Browser Google account index for login: 0 first, 1 second, etc.")
     args = parser.parse_args()
     try:
+        if args.command == "plugins":
+            from .nuclear import list_plugins
+            list_plugins(args.plugin)
+            return
         if args.command == "setup-playback":
             from .playback_setup import ensure_helper
             print("Setting up YouTube playback-token support (git, Node.js and npm required)…", flush=True)

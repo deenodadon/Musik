@@ -348,6 +348,23 @@ class Daemon:
                     else:
                         self.message = detail
 
+    async def prepare_queue(self):
+        # One background lookup at a time avoids saturating the connection and
+        # token helper. Foreground selection shares an in-flight lookup.
+        while True:
+            for track in list(self.state.queue):
+                if self.stopping.is_set():
+                    return
+                if track.source == "local" or track not in self.state.queue:
+                    continue
+                try:
+                    await self.player.prepare_audio(track)
+                except Exception:
+                    # A speculative lookup never changes playback/error status.
+                    pass
+                await asyncio.sleep(.05)
+            await asyncio.sleep(10)
+
     async def run(self):
         directory = runtime_directory(self.store)
         with (directory / "service.lock").open("a+") as lock_file:
@@ -362,7 +379,7 @@ class Daemon:
                 signal.signal(signal.SIGHUP, signal.SIG_IGN)
                 for sig in (signal.SIGTERM, signal.SIGINT):
                     loop.add_signal_handler(sig, self.stopping.set)
-            server = monitor = None
+            server = monitor = preparation = None
             try:
                 try:
                     await self.player.start()
@@ -382,6 +399,7 @@ class Daemon:
                     server = await asyncio.start_unix_server(self.connection, str(socket), limit=2**20)
                 socket.chmod(0o600)
                 monitor = asyncio.create_task(self.monitor())
+                preparation = asyncio.create_task(self.prepare_queue())
                 await self.stopping.wait()
             finally:
                 if server:
@@ -390,6 +408,9 @@ class Daemon:
                 if self.radio_task:
                     self.radio_task.cancel()
                     await asyncio.gather(self.radio_task, return_exceptions=True)
+                if preparation:
+                    preparation.cancel()
+                    await asyncio.gather(preparation, return_exceptions=True)
                 if monitor:
                     monitor.cancel()
                     await asyncio.gather(monitor, return_exceptions=True)

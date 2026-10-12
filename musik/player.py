@@ -69,6 +69,7 @@ class Player:
         self.format_id = None
         self.stream_retry_used = False
         self.audio_cache = OrderedDict()
+        self.audio_resolutions = {}
 
     async def start(self):
         executable = mpv_executable()
@@ -224,8 +225,31 @@ class Player:
             return
         self.audio_cache[key] = (time.monotonic() + lifetime, info)
         self.audio_cache.move_to_end(key)
-        while len(self.audio_cache) > 8:
+        while len(self.audio_cache) > 256:
             self.audio_cache.popitem(last=False)
+
+    async def prepare_audio(self, track):
+        """Share background and foreground lookups without touching playback."""
+        from .stream import resolve_audio
+        key = self.audio_cache_key(track)
+        cached = self.audio_cache.get(key)
+        if cached and cached[0] > time.monotonic():
+            return cached[1]
+        task = self.audio_resolutions.get(key)
+        if task is None:
+            async def resolve():
+                try:
+                    info = await asyncio.to_thread(resolve_audio, track.url, self.store)
+                    if key == self.audio_cache_key(track):
+                        self.cache_audio(key, info)
+                    return info
+                finally:
+                    self.audio_resolutions.pop(key, None)
+            task = asyncio.create_task(resolve())
+            # Background cancellation must not leave an unobserved exception.
+            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+            self.audio_resolutions[key] = task
+        return await asyncio.shield(task)
 
     async def play(self, track: Track, state: State, *, retry_stream=False):
         resume = self.position if retry_stream else 0.0
@@ -257,8 +281,7 @@ class Player:
                 info = cached[1]
                 self.audio_cache.move_to_end(key)
             else:
-                info = await asyncio.to_thread(resolve_audio, url, self.store)
-                self.cache_audio(key, info)
+                info = await self.prepare_audio(track)
             duration = info.get("duration")
             if isinstance(duration, (int, float)) and math.isfinite(duration) and duration > 0 and not info.get("is_live"):
                 self.track_duration = self.duration = duration
@@ -290,6 +313,10 @@ class Player:
         await self.command("set_property", "af", f"{eq},{meter}" if eq else meter)
 
     async def close(self):
+        resolutions = list(self.audio_resolutions.values())
+        for resolution in resolutions:
+            resolution.cancel()
+        await asyncio.gather(*resolutions, return_exceptions=True)
         if self.visualizer_task:
             self.visualizer_task.cancel()
             await asyncio.gather(self.visualizer_task, return_exceptions=True)
