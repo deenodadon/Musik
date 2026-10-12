@@ -1,6 +1,7 @@
 """mpv JSON IPC, with no shell invocation or bundled browser."""
 import asyncio
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -52,6 +53,9 @@ class Player:
         self.active_generation = 0
         self.position = 0.0
         self.duration = 0.0
+        self.track_duration = None
+        self.timestamp_origins = {}
+        self.demuxer_start = None
         self.paused = False
         self.idle = True
         self.levels = [0.0] * 32
@@ -88,7 +92,7 @@ class Player:
                 raise RuntimeError("mpv IPC startup timed out")
             self.task = asyncio.create_task(self._read())
             await self.command("request_log_messages", "warn")
-            for i, prop in enumerate(("time-pos", "duration", "pause", "idle-active")):
+            for i, prop in enumerate(("time-pos", "duration", "pause", "idle-active", "audio-pts", "demuxer-start-time")):
                 await self.command("observe_property", i, prop)
             self.visualizer_task = asyncio.create_task(self._levels())
         except BaseException:
@@ -107,6 +111,19 @@ class Player:
             self.levels = self.levels[1:] + [level]
             await asyncio.sleep(0.08)
 
+    def update_position(self, source, value):
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
+            return
+        duration = self.track_duration or self.duration
+        if value < -1 or (duration > 0 and value > duration + 1):
+            start = self.demuxer_start
+            if isinstance(start, (int, float)) and 0 <= value - start <= duration:
+                value -= start
+            else:
+                origin = self.timestamp_origins.setdefault(source, value)
+                value -= origin
+        self.position = max(0.0, min(value, duration) if duration > 0 else value)
+
     async def _read(self):
         try:
             while line := await self.reader.readline():
@@ -119,10 +136,12 @@ class Player:
                         future.set_exception(RuntimeError(f"mpv: {message.get('error')}"))
                 if message.get("event") == "property-change":
                     value = message.get("data")
-                    if message.get("name") == "time-pos":
-                        self.position = value or 0.0
+                    if message.get("name") in ("time-pos", "audio-pts"):
+                        self.update_position(message["name"], value)
+                    elif message.get("name") == "demuxer-start-time":
+                        self.demuxer_start = value
                     elif message.get("name") == "duration":
-                        self.duration = value or 0.0
+                        self.duration = self.track_duration or value or 0.0
                     elif message.get("name") == "idle-active":
                         self.idle = bool(value)
                     elif message.get("name") == "pause":
@@ -166,6 +185,10 @@ class Player:
 
     async def play(self, track: Track, state: State, *, retry_stream=False):
         self.play_generation += 1
+        self.position = self.duration = 0.0
+        self.track_duration = None
+        self.timestamp_origins.clear()
+        self.demuxer_start = None
         if not retry_stream:
             self.stream_retry_used = False
         self.failure_detail = None
@@ -180,6 +203,9 @@ class Player:
                                                alternate_audio=True, rejected_format=self.format_id)
             else:
                 info = await asyncio.to_thread(resolve_audio, url, self.store)
+            duration = info.get("duration")
+            if isinstance(duration, (int, float)) and math.isfinite(duration) and duration > 0 and not info.get("is_live"):
+                self.track_duration = self.duration = duration
             self.format_id = info.get("format_id")
             self.public_fallback = bool(info.get("_musik_public_fallback"))
             url = info["url"]

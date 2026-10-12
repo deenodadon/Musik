@@ -109,3 +109,33 @@ async def test_recoverable_http_warning_is_not_reported_as_playback_failure(fail
     else:
         assert player.failure_detail is None
         assert player.pending_failure is None
+
+
+async def test_hls_uses_track_duration_and_advancing_audio_clock(tmp_path, monkeypatch):
+    import json
+    from musik import stream
+    from musik.core import Store
+    monkeypatch.setattr(stream, 'resolve_audio', lambda *args, **kwargs: {
+        'url': 'https://example.org/audio.m3u8', 'duration': 215, 'protocol': 'm3u8_native'})
+    player = Player(store=Store(tmp_path))
+    async def command(*args):
+        pass
+    monkeypatch.setattr(player, 'command', command)
+    await player.play(Track('song', 'Song'), State())
+    player.reader = asyncio.StreamReader()
+    messages = [
+        {'event': 'property-change', 'name': 'duration', 'data': 95383},
+        {'event': 'property-change', 'name': 'time-pos', 'data': None},
+        {'event': 'property-change', 'name': 'audio-pts', 'data': 90000},
+        {'event': 'property-change', 'name': 'audio-pts', 'data': 90002.5},
+    ]
+    for message in messages:
+        player.reader.feed_data((json.dumps(message) + '\n').encode())
+    player.reader.feed_eof()
+    await player._read()
+    assert player.duration == 215
+    assert player.position == 2.5
+    player.update_position('audio-pts', 90012.5)
+    assert player.position == 12.5
+    player.update_position('audio-pts', 90002.5)
+    assert player.position == 2.5

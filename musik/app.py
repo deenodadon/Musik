@@ -52,7 +52,7 @@ class Musik(App):
     #queue-help { height: auto; color: #8899aa; }
     #tracks { height: 1fr; border: round #435674; }
     #lyrics { height: 1fr; border: round #435674; padding: 1; overflow-y: auto; }
-    #now { height: 5; margin: 1 2; padding: 0 1; border: round #66d9bb; }
+    #now { height: auto; min-height: 5; margin: 1 2; padding: 0 1; border: round #66d9bb; }
     #playback-ready { height: 2; margin: 0 2; color: #66d9bb; }
     #update { height: 1; margin: 0 2; color: #8899aa; }
     #status { height: 2; margin: 0 2; color: #66d9bb; }
