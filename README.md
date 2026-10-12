@@ -4,11 +4,10 @@ A terminal YouTube Music and local audio player with visualizer bars, automatic 
 
 ## Windows
 
-Paste into PowerShell (Windows 10/11 with WinGet):
+Install with this one-line PowerShell command (Windows 10/11 with WinGet):
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-musik.ps1"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-musik.ps1"
+& { $ErrorActionPreference = "Stop"; Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-musik.ps1"; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-musik.ps1" }
 ```
 
 The installer sets up Musik, Python, Git, mpv, Node.js and Brave. Open a **new PowerShell** and run `musik`.
@@ -61,8 +60,7 @@ Sign-in uses Brave by default; Chrome, Chromium and Edge can be selected with `-
 Removes Musik and its saved data, while keeping shared prerequisites and personal music:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/uninstall-windows.ps1" -OutFile "$env:TEMP\uninstall-musik.ps1"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\uninstall-musik.ps1"
+& { $ErrorActionPreference = "Stop"; Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/uninstall-windows.ps1" -OutFile "$env:TEMP\uninstall-musik.ps1"; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\uninstall-musik.ps1" }
 ```
 
 Add `-KeepData` to keep saved Musik data. Use `-InstallDirectory PATH` for a custom installation. Edited source checkouts are preserved in a sibling backup folder. Close/reopen PowerShell afterward.
