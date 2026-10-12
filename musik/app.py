@@ -3,6 +3,7 @@ from functools import partial
 import asyncio
 from pathlib import Path
 
+from textual.screen import ModalScreen
 from textual import on
 from textual.binding import Binding
 from textual.app import App, ComposeResult
@@ -27,6 +28,29 @@ class BrowserTable(DataTable):
         row = event.style.meta.get("row")
         if isinstance(row, int) and 0 <= row < self.row_count and self.cursor_coordinate != previous:
             self._post_selected_message()
+
+
+class RepeatMenu(ModalScreen[str]):
+    DEFAULT_CSS = """
+    RepeatMenu { align: center middle; background: #00000088; }
+    #repeat-menu { width: 44; height: auto; padding: 1 2; border: round #66d9bb; background: #10151f; }
+    #repeat-menu Button { width: 1fr; margin-top: 1; }
+    """
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    def compose(self):
+        with Vertical(id="repeat-menu"):
+            yield Static("Choose repeat mode", markup=False)
+            yield Button("Off", id="repeat-off")
+            yield Button("Song — repeat the current track", id="repeat-song")
+            yield Button("Queue — repeat the whole queue", id="repeat-queue")
+
+    @on(Button.Pressed)
+    def choose(self, event):
+        self.dismiss(event.button.id.removeprefix("repeat-"))
+
+    def action_cancel(self):
+        self.dismiss(None)
 
 
 class Musik(App):
@@ -501,6 +525,8 @@ class Musik(App):
                     self.state = self.player.state
             except Exception as exc:
                 self.status(str(exc))
+                return False
+        return True
 
     async def action_volume(self, delta):
         self.state.volume = max(0, min(100, self.state.volume + delta))
@@ -522,14 +548,25 @@ class Musik(App):
         await self.apply_settings()
 
     @on(Button.Pressed, "#repeat-toggle")
-    async def repeat_clicked(self):
-        await self.action_repeat()
+    def repeat_clicked(self):
+        self.push_screen(RepeatMenu(), self.set_repeat_mode)
 
-    async def action_repeat(self):
-        self.state.cycle_repeat()
-        await self.apply_settings()
+    async def set_repeat_mode(self, mode):
+        if mode is None:
+            return
+        previous = self.state.repeat, self.state.repeat_one
+        self.state.repeat = mode != "off"
+        self.state.repeat_one = mode == "song"
+        if not await self.apply_settings():
+            self.state.repeat, self.state.repeat_one = previous
+            self.notify("Restart background playback: run musik stop, then musik, and select Song again.", severity="warning", timeout=12)
+            return
         self.query_one("#repeat-toggle", Button).label = f"Repeat: {self.state.repeat_mode}"
         self.status(f"Repeat: {self.state.repeat_mode}")
+
+    async def action_repeat(self):
+        mode = {"Off": "song", "Song": "queue", "Queue": "off"}[self.state.repeat_mode]
+        await self.set_repeat_mode(mode)
 
     async def action_remove(self):
         if self.view != "queue":

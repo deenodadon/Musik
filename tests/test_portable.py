@@ -39,3 +39,17 @@ async def test_authenticated_loopback_service(tmp_path, monkeypatch):
         assert (await request(store, 'status'))['idle']
     finally:
         await stop_service(store)
+
+
+async def test_older_background_player_cannot_silently_downgrade_song_repeat(tmp_path):
+    from dataclasses import asdict
+    from musik.core import State
+    client = BackgroundPlayer(Store(tmp_path))
+    state = asdict(State(repeat=True))
+    state.pop('repeat_one')
+    client.update({'state': state, 'position': 0, 'duration': 0, 'paused': False,
+                   'idle': True, 'levels': [], 'message': ''})
+    assert client.supports_repeat_song is False
+    with pytest.raises(RuntimeError, match='musik stop'):
+        await client.settings(State(repeat=True, repeat_one=True))
+    assert client.state.repeat_mode == 'Queue'

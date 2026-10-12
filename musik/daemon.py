@@ -68,6 +68,7 @@ class BackgroundPlayer:
         self.levels = [0.0] * 32
         self.events = asyncio.Queue()
         self.message = ""
+        self.supports_repeat_song = None
 
     async def start(self):
         try:
@@ -90,6 +91,7 @@ class BackgroundPlayer:
         raise RuntimeError("Background service could not start. Check mpv is installed.")
 
     def update(self, response):
+        self.supports_repeat_song = "repeat_one" in response["state"]
         self.state = decode_state(response["state"])
         for key in ("position", "duration", "paused", "idle", "levels", "message"):
             setattr(self, key, response[key])
@@ -106,6 +108,8 @@ class BackgroundPlayer:
         await self.rpc("command", command=command)
 
     async def settings(self, state):
+        if state.repeat_one and self.supports_repeat_song is False:
+            raise RuntimeError("Background player needs restarting for Song repeat. Run musik stop, then musik.")
         await self.rpc("settings", volume=state.volume, speed=state.speed,
                        equalizer=state.equalizer, shuffle=state.shuffle, repeat=state.repeat, repeat_one=state.repeat_one)
 
