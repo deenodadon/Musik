@@ -79,7 +79,7 @@ Removes Musik and its saved data, while keeping shared prerequisites and persona
 
 Add `-KeepData` to keep saved Musik data. Use `-InstallDirectory PATH` for a custom installation. Edited source checkouts are preserved in a sibling backup folder. Close/reopen PowerShell afterward.
 
-Queued songs prepare their stream links in the background to reduce loading when selecting any queued song. This does not guarantee instant or gapless playback. `musik plugins` lists the Nuclear registry for inspection; Nuclear plugins cannot run in Musik yet.
+Queued songs prepare their stream links in the background to reduce loading when selecting any queued song. This does not guarantee instant or gapless playback. Open **Plugins** (F10) to install Nuclear music-provider plugins, choose providers, and configure settings. Desktop-only plugins require separate terminal adapters.
 
 [Advanced options and development](docs/advanced.md) · [Upstream sources](UPSTREAMS.md) · [License](LICENSE)
 

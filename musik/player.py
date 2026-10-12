@@ -56,6 +56,7 @@ class Player:
         self.active_generation = 0
         self.entry_generations = {}
         self.online_stream = False
+        self.youtube_url = None
         self.resume_offset = 0.0
         self.position = 0.0
         self.duration = 0.0
@@ -70,6 +71,8 @@ class Player:
         self.stream_retry_used = False
         self.audio_cache = OrderedDict()
         self.audio_resolutions = {}
+        from .nuclear import NuclearRuntime
+        self.nuclear = NuclearRuntime(self.store, control_enabled=False)
 
     async def start(self):
         executable = mpv_executable()
@@ -203,7 +206,7 @@ class Player:
     def audio_cache_key(self, track):
         from .auth import cookie_path
         from .playback_setup import helper_ready
-        paths = (cookie_path(self.store), self.store.directory / 'account.json')
+        paths = (cookie_path(self.store), self.store.directory / 'account.json', self.store.directory / 'plugins/plugins.json', self.store.directory / 'plugins/settings.json')
         stamps = tuple(path.stat().st_mtime_ns if path.exists() else None for path in paths)
         return track.url, stamps, helper_ready()
 
@@ -228,9 +231,42 @@ class Player:
         while len(self.audio_cache) > 256:
             self.audio_cache.popitem(last=False)
 
+    def resolve_track(self, track):
+        from .nuclear import nuclear_track
+        if track.source == 'nuclear':
+            payload = json.loads(track.id)
+            preferred = self.nuclear.selected('streaming') or payload.get('streaming')
+            source = payload['track'].get('source') or {}
+            if not preferred:
+                for descriptor in self.nuclear.status()['providers']:
+                    if descriptor['id'] == source.get('provider'):
+                        preferred = descriptor['id'] if descriptor['kind'] == 'streaming' else descriptor.get('streamingProviderId')
+                        if preferred:
+                            break
+            if preferred:
+                info = self.nuclear.call('stream', track=nuclear_track(track), provider=preferred)
+                return {'url': info['url'], 'duration': (info.get('durationMs') or 0) / 1000, 'http_headers': info.get('headers', {})}
+            # Metadata-only providers need a separate audio source. The Musik
+            # default uses its existing YouTube search/extractor, not whichever
+            # unrelated plugin happened to register first.
+            from .service import MusicService
+            candidates = MusicService(self.store).search_videos(f'{track.artist} {track.title}')
+            if not candidates:
+                raise RuntimeError('No audio match found; select a streaming provider in Plugins')
+            from .stream import resolve_audio
+            info = resolve_audio(candidates[0].url, self.store)
+            info['_musik_youtube_url'] = candidates[0].url
+            return info
+        if provider := self.nuclear.selected('streaming'):
+            info = self.nuclear.call('stream', track=nuclear_track(track), provider=provider)
+            return {'url': info['url'], 'duration': (info.get('durationMs') or 0) / 1000, 'http_headers': info.get('headers', {})}
+        from .stream import resolve_audio
+        info = resolve_audio(track.url, self.store)
+        info['_musik_youtube_url'] = track.url
+        return info
+
     async def prepare_audio(self, track):
         """Share background and foreground lookups without touching playback."""
-        from .stream import resolve_audio
         key = self.audio_cache_key(track)
         cached = self.audio_cache.get(key)
         if cached and cached[0] > time.monotonic():
@@ -239,7 +275,7 @@ class Player:
         if task is None:
             async def resolve():
                 try:
-                    info = await asyncio.to_thread(resolve_audio, track.url, self.store)
+                    info = await asyncio.to_thread(self.resolve_track, track)
                     if key == self.audio_cache_key(track):
                         self.cache_audio(key, info)
                     return info
@@ -254,7 +290,9 @@ class Player:
     async def play(self, track: Track, state: State, *, retry_stream=False):
         resume = self.position if retry_stream else 0.0
         self.resume_offset = resume
-        self.online_stream = track.source != "local"
+        if not retry_stream:
+            self.online_stream = track.source in ("youtube", "video") and not self.nuclear.selected("streaming")
+            self.youtube_url = None
         self.play_generation += 1
         self.position = resume
         self.duration = 0.0
@@ -274,14 +312,18 @@ class Player:
             if retry_stream:
                 self.stream_retry_used = True
                 self.audio_cache.pop(key, None)
-                info = await asyncio.to_thread(resolve_audio, url, self.store,
+                info = await asyncio.to_thread(resolve_audio, self.youtube_url or url, self.store,
                                                alternate_audio=True, rejected_format=self.format_id)
+                if self.youtube_url:
+                    info['_musik_youtube_url'] = self.youtube_url
                 self.cache_audio(key, info)
             elif cached and cached[0] > time.monotonic():
                 info = cached[1]
                 self.audio_cache.move_to_end(key)
             else:
                 info = await self.prepare_audio(track)
+            self.youtube_url = info.get('_musik_youtube_url')
+            self.online_stream = bool(self.youtube_url) or self.online_stream
             duration = info.get("duration")
             if isinstance(duration, (int, float)) and math.isfinite(duration) and duration > 0 and not info.get("is_live"):
                 self.track_duration = self.duration = duration
@@ -317,6 +359,7 @@ class Player:
         for resolution in resolutions:
             resolution.cancel()
         await asyncio.gather(*resolutions, return_exceptions=True)
+        await asyncio.to_thread(self.nuclear.close)
         if self.visualizer_task:
             self.visualizer_task.cancel()
             await asyncio.gather(self.visualizer_task, return_exceptions=True)

@@ -235,7 +235,7 @@ class Daemon:
             elif operation == "playlist":
                 self.waiting_for_radio = False
                 tracks = [Track(**item) for item in args["tracks"]]
-                if not tracks or any(t.source not in ("youtube", "video", "local") for t in tracks):
+                if not tracks or any(t.source not in ("youtube", "video", "local", "nuclear") for t in tracks):
                     raise ValueError("Playlist has no playable tracks")
                 self.radio_generation += 1
                 if self.radio_task:
@@ -282,6 +282,29 @@ class Daemon:
                 self.state.repeat_one = bool(args.get("repeat_one", False))
                 await self.player.settings(self.state)
                 self.message = f"Volume {self.state.volume}% · Speed {self.state.speed:.2f}× · EQ {self.state.equalizer}"
+            elif operation == "plugin-queue":
+                action = args["action"]
+                if action == "insert":
+                    tracks = [Track(**item) for item in args["tracks"]]
+                    index = max(0, min(len(self.state.queue), int(args["index"])))
+                    self.state.queue[index:index] = tracks
+                    if self.state.index >= index:
+                        self.state.index += len(tracks)
+                elif action == "remove":
+                    for index in sorted(set(map(int,args["indices"])), reverse=True):
+                        if index == self.state.index:
+                            await self.player.command("stop")
+                        self.state.remove(index)
+                elif action == "clear":
+                    self.radio_generation += 1
+                    if self.radio_task:
+                        self.radio_task.cancel()
+                    self.waiting_for_radio = False
+                    await self.player.command("stop")
+                    self.state.queue = []
+                    self.state.index = -1
+                else:
+                    raise ValueError("Unsupported plugin queue action")
             elif operation == "command":
                 command = args["command"]
                 if not command or command[0] not in ("cycle", "seek", "stop"):
@@ -334,7 +357,7 @@ class Daemon:
                         continue
                     detail = event.get("_musik_error") or "mpv could not open this audio stream. Run musik doctor for diagnostics."
                     track = self.state.current
-                    if ("HTTP 403" in detail and track and track.source != "local"
+                    if ("HTTP 403" in detail and track and getattr(self.player, "online_stream", track.source in ("youtube", "video"))
                             and not getattr(self.player, "stream_retry_used", False)):
                         self.player.stream_retry_used = True
                         self.player.failure_detail = None

@@ -67,6 +67,8 @@ class MusicService:
         self.store = store or Store()
         self._api = None
         self._auth_stamp = None
+        from .nuclear import NuclearRuntime
+        self.nuclear = NuclearRuntime(self.store)
 
     @property
     def api(self):
@@ -81,14 +83,21 @@ class MusicService:
         return self._api
 
     def playlists(self):
+        from .nuclear import convert_item
+        saved = self.nuclear._playlist_callback('getIndex', []) if (self.store.directory / 'plugins/playlists.json').exists() else []
+        local = [convert_item({'name':p['name'],'source':{'provider':'musik-playlists','id':p['id']}}, 'playlist', 'musik-playlists') for p in saved]
+        if not cookie_path(self.store).exists() and local:
+            return local
         if not cookie_path(self.store).exists():
             raise RuntimeError("Sign in first with musik login --browser firefox")
         playlists = self.api.get_library_playlists(limit=None)
         save_playlists(self.store, playlists)
-        return [Track(p["playlistId"], p.get("title") or "Untitled playlist", "Your playlist", "playlist")
+        return local + [Track(p["playlistId"], p.get("title") or "Untitled playlist", "Your playlist", "playlist")
                 for p in playlists if p.get("playlistId")]
 
     def playlist_tracks(self, playlist):
+        if playlist.source == "nuclear":
+            return self.plugin_catalog(playlist)
         result = self.api.get_playlist(playlist.id, limit=None)
         return [track for item in (result.get("tracks") or []) if (track := song_track(item))]
 
@@ -127,6 +136,18 @@ class MusicService:
         return rows
 
     def search(self, query):
+        if query.startswith(('https://', 'http://')) and (provider := self.nuclear.selected('playlists')):
+            matches = self.nuclear.call('invoke', provider=provider, kind='playlists', method='matchesUrl', args=[query])
+            if matches:
+                from .nuclear import convert_item
+                return [convert_item({'title': 'Open playlist', 'source': {'provider': provider, 'id': query}}, 'playlist', provider)]
+        if provider := self.nuclear.selected('metadata'):
+            from .nuclear import convert_item
+            result = self.nuclear.call('search', params={'query': query, 'types': ['tracks', 'albums', 'artists'], 'limit': 50}, provider=provider)
+            descriptor = next(p for p in self.nuclear.status()['providers'] if p['id'] == provider)
+            return [convert_item(item, kind, provider, descriptor.get('streamingProviderId'))
+                    for plural, kind in [('tracks', 'song'), ('albums', 'album'), ('artists', 'artist')]
+                    for item in result.get(plural, [])]
         artists = []
         for item in self.api.search(query, filter="artists", limit=20):
             if not isinstance(item, dict):
@@ -181,6 +202,8 @@ class MusicService:
         return [*songs, *albums, *artists]
 
     def artist_catalog(self, artist, full_songs=False):
+        if artist.source == "nuclear":
+            return self.plugin_catalog(artist)
         data = self.api.get_artist(artist.id)
         name = data.get("name") or artist.title
         rows = []
@@ -215,6 +238,8 @@ class MusicService:
         return rows
 
     def album_tracks(self, album):
+        if album.source == "nuclear":
+            return self.plugin_catalog(album)
         data = self.api.get_album(album.id)
         artists = data.get("artists") or []
         name = ", ".join(a["name"] for a in artists if isinstance(a, dict) and isinstance(a.get("name"), str)) or album.artist
@@ -226,7 +251,56 @@ class MusicService:
                 tracks.append(track)
         return tracks
 
+    def plugin_catalog(self, track):
+        from .nuclear import convert_item
+        payload = json.loads(track.id)
+        provider, kind = payload['provider'], payload['kind']
+        data = payload['track']
+        identity = (data.get('source') or {}).get('id') or data.get('id')
+        if kind == 'album':
+            album = self.nuclear.call('invoke', provider=provider, kind='metadata', method='fetchAlbumDetails', args=[identity])
+            return [convert_item(item, 'song', provider, payload.get('streaming')) for item in album.get('tracks', [])]
+        if kind == 'artist':
+            rows = []
+            descriptor = next(p for p in self.nuclear.status()['providers'] if p['id'] == provider)
+            for method, row_kind in [('fetchArtistTopTracks', 'song'), ('fetchArtistAlbums', 'album')]:
+                if method in descriptor['methods']:
+                    items = self.nuclear.call('invoke', provider=provider, kind='metadata', method=method, args=[identity])
+                    rows.extend(convert_item(item, row_kind, provider, payload.get('streaming')) for item in items)
+            return rows
+        if kind == 'playlist':
+            if provider == 'musik-playlists':
+                playlist = self.nuclear._playlist_callback('getPlaylist', [identity])
+                if not playlist:
+                    raise ValueError('Saved playlist no longer exists')
+                return [convert_item(item['track'], 'song', item['track'].get('source',{}).get('provider','')) for item in playlist['items']]
+            playlist = self.nuclear.call('invoke', provider=provider, kind='playlists', method='fetchPlaylistByUrl', args=[identity])
+            items = playlist.get('items') or playlist.get('tracks') or []
+            return [convert_item(item.get('track', item), 'song', provider) for item in items]
+        raise ValueError('Plugin item is not a browsable artist, album or playlist')
+
+    def plugin_dashboard(self):
+        from .nuclear import convert_item
+        provider = self.nuclear.selected('dashboard')
+        if not provider:
+            return []
+        descriptor = next(p for p in self.nuclear.status()['providers'] if p['id'] == provider)
+        rows = []
+        for method, kind in [('fetchTopTracks', 'song'), ('fetchTopArtists', 'artist'), ('fetchTopAlbums', 'album'), ('fetchNewReleases', 'album'), ('fetchEditorialPlaylists', 'playlist')]:
+            if method in descriptor['methods']:
+                items = self.nuclear.call('invoke', provider=provider, kind='dashboard', method=method, args=[])
+                for item in items:
+                    target = descriptor.get('metadataProviderId') or (item.get('source') or {}).get('provider') or provider
+                    rows.append(convert_item(item, kind, target))
+        return rows
+
     def radio(self, track, limit=25):
+        if provider := self.nuclear.selected('discovery'):
+            from .nuclear import nuclear_track, convert_item
+            result = self.nuclear.call('invoke', provider=provider, kind='discovery', method='getRecommendations', args=[[nuclear_track(track)], {'variety': .5, 'limit': limit}])
+            return [convert_item(item, 'song', provider) for item in result]
+        if track.source == 'nuclear':
+            return []
         if track.source == "local":
             from pathlib import Path
             from .core import scan_local
@@ -250,6 +324,15 @@ class MusicService:
         return tracks
 
     def lyrics(self, track):
+        if provider := self.nuclear.selected('lyrics'):
+            from .nuclear import nuclear_track
+            result = self.nuclear.call('lyrics', track=nuclear_track(track), provider=provider)
+            if result:
+                lyrics = result[0]['lyrics']
+                return lyrics.get('plain') or lyrics.get('plainLyrics') or lyrics.get('synced') or lyrics.get('syncedLyrics') or '\n'.join(''.join(segment.get('text', '') for segment in line.get('segments', [])) for section in lyrics.get('sections', []) for line in section.get('lines', [])) or 'Lyrics unavailable.'
+            return 'Lyrics unavailable for this song.'
+        if track.source == 'nuclear':
+            return 'Enable a Nuclear lyrics provider to fetch lyrics for this source.'
         if track.source == "local":
             from pathlib import Path
             text = Path(track.id).with_suffix(".lrc")
@@ -275,7 +358,7 @@ def save_playlists(store, playlists):
 def cached_playlists(store):
     try:
         data = json.loads((store.directory / "playlists.json").read_text())
-        return [Track(p["playlistId"], p["title"], "Your playlist", "playlist") for p in data]
+        return local + [Track(p["playlistId"], p["title"], "Your playlist", "playlist") for p in data]
     except (OSError, ValueError, KeyError, TypeError):
         return []
 

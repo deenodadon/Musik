@@ -34,9 +34,68 @@ lookup delays but does not provide guaranteed instant or gapless playback:
 network buffering and audio decoding still take time. Alternate audio is only
 requested after the original stream fails.
 
-`musik plugins` reads the live Nuclear registry. Use
-`musik plugins --plugin nuclear-plugin-bandcamp` to inspect a specific plugin.
-This is a catalog, not an installer or plugin runtime. Nuclear plugins require
-Nuclear's JavaScript host APIs; they cannot execute directly in Musik's Python
-and mpv backend. A provider adapter or a compatible host must be implemented
-before a plugin can be enabled. UI plugins additionally need a terminal interface.
+## Nuclear plugins
+
+Open **Plugins** in the main menu or press **F10**. Choose a registry entry,
+click **Install**, and select providers for search, playback, lyrics, charts,
+playlists, or discovery. **Charts** opens the selected dashboard. Simple plugin
+settings can be edited in the same menu; password/token fields hide typed values.
+Plugins run as your user, so install only plugins you trust.
+
+The installer verifies the indexed GitHub release's SHA-256 digest, installs
+production dependencies without running package scripts, and bundles JavaScript
+or TypeScript for a Node.js 22+ host. Installed release sources and manifests
+remain in Musik's private data directory. Plugin licenses remain their authors'.
+Missing GitHub checksums, unsupported desktop APIs, and malformed releases are
+reported rather than silently accepted.
+
+Command-line equivalents work on Linux and Windows:
+
+```text
+musik plugins
+musik plugins --install nuclear-plugin-bandcamp
+musik plugins --install nuclear-plugin-lrclib
+musik plugins --installed
+musik plugins --provider metadata=bandcamp
+musik plugins --provider streaming=bandcamp-stream
+musik plugins --provider streaming=builtin
+musik plugins --disable nuclear-plugin-bandcamp
+musik plugins --enable nuclear-plugin-bandcamp
+musik plugins --plugin PLUGIN_ID --setting SETTING_ID=VALUE
+```
+
+Installing a plugin selects the first available provider of each kind, except
+streaming: native YouTube playback remains the default. Bandcamp, SoundCloud,
+and other metadata providers with their own streaming provider use it for their
+own songs. Metadata-only songs use a YouTube audio match unless you select a
+plugin streaming provider. Videos remain available in their existing result tab.
+A selected plugin streaming provider can resolve audio for other providers by
+artist/title, so it may choose a different upload. Choose **Musik default** to
+restore the original playback method and its alternate-stream retry.
+
+Paste a playlist URL into search after selecting a matching playlists provider,
+then open it with Enter. Playlists created or imported by plugins appear in
+Musik's Playlists menu without requiring a YouTube login. Plugin data and
+settings are removed by `musik reset`.
+
+The bridge covers music-provider APIs: metadata, streaming, lyrics, dashboards,
+playlist URLs/storage, and discovery, plus settings, HTTP, and yt-dlp. Registry
+installation/loading was checked for 17 provider plugins: Discogs, YouTube,
+Bandcamp, SoundCloud, Spotify metadata, Deezer Dashboard, MusicBrainz,
+ListenBrainz Dashboard, YouTube Playlists, KHInsider, OmniSource, Bandcamp
+Dashboard, SoundCloud Dashboard, NetEase, NuclearTube, LRCLIB, and Kugou.
+Loading confirms host compatibility, not availability of every remote service
+or every provider feature. Services may still require credentials or impose
+access restrictions.
+
+Last.fm, YouTube Liked Songs Sync, Spotify Home, Mini Player, TXT Queue, and
+MediaSession require additional desktop/UI/system adapters. React authentication
+widgets and Tauri/browser windows are not rendered in the terminal. These plugins
+are reported as unsupported instead of being presented as working music sources.
+
+Development checks for actual installed releases can use
+`MUSIK_NUCLEAR_TEST_STORE=/path/to/musik pytest tests/test_nuclear_upstream.py`.
+Those checks run the unchanged Bandcamp, LRCLIB, and YouTube plugin code against
+controlled network responses. Live Bandcamp requests are blocked by the cloud
+proxy used during development; local users' remote-service playback is not
+claimed as verified by those checks.

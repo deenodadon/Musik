@@ -89,7 +89,7 @@ class Musik(App):
         Binding("ctrl+right", "seek(10)", "Seek +10s", priority=True),
         Binding("ctrl+left", "seek(-10)", "Seek -10s", priority=True),
         ("e", "equalizer", "EQ"), ("v", "speed", "Speed"),
-        ("q", "quit", "Detach"), Binding("escape", "browse", "Browse", priority=True),
+        ("f10", "plugins", "Plugins"), ("q", "quit", "Detach"), Binding("escape", "browse", "Browse", priority=True),
     ]
 
     def __init__(self, store=None, service=None, player=None, local=None):
@@ -116,7 +116,7 @@ class Musik(App):
         yield Header()
         yield Tabs(Tab("Results", id="menu-results"), Tab("Queue", id="menu-queue"),
                    Tab("Favorites", id="menu-favorites"), Tab("History", id="menu-history"),
-                   Tab("Playlists", id="menu-playlists"), id="main-menu")
+                   Tab("Playlists", id="menu-playlists"), Tab("Plugins", id="menu-plugins"), id="main-menu")
         yield Input(placeholder="Search music / YouTube videos, paste a YouTube link, or /local PATH", id="search")
         with Horizontal(id="body"):
             with Vertical(id="browse"):
@@ -174,7 +174,8 @@ class Musik(App):
 
     @staticmethod
     def category(item):
-        return {"artist": "artists", "album": "albums", "video": "videos"}.get(item.source, "songs")
+        from .nuclear import item_kind
+        return {"artist": "artists", "album": "albums", "video": "videos"}.get(item_kind(item), "songs")
 
     def choose_section(self):
         self.results_section = next((kind for kind in ("songs", "albums", "artists", "videos")
@@ -182,6 +183,10 @@ class Musik(App):
 
     @on(Tabs.TabActivated, "#main-menu")
     def menu_activated(self, event):
+        if event.tab.id == "menu-plugins":
+            self.query_one("#main-menu", Tabs).active = "menu-" + self.view
+            self.action_plugins()
+            return
         if event.tab.id != self.query_one("#main-menu", Tabs).active:
             return
         view = event.tab.id.removeprefix("menu-")
@@ -235,9 +240,10 @@ class Musik(App):
         self.highlight_stamp = (self.state.index, current, self.player.idle, self.player.paused)
         table.clear()
         for index, track in enumerate(self.tracks):
-            kind = {"youtube": "Song", "video": "Video", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
+            from .nuclear import item_kind
+            kind = {"song": "Song", "youtube": "Song", "video": "Video", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(item_kind(track), track.source)
             is_current = active and (index == self.state.index if self.view == "queue"
-                                    else track.source not in ("artist", "album", "playlist")
+                                    else item_kind(track) not in ("artist", "album", "playlist")
                                     and track.id == current.id and track.url == current.url)
             title = f"{index + 1}. {track.title}" if self.view == "queue" else track.title
             if is_current:
@@ -273,7 +279,11 @@ class Musik(App):
                 if query.startswith("/local "):
                     results = await asyncio.to_thread(scan_local, Path(query[7:]).expanduser())
                 elif query.startswith(("https://", "http://")):
-                    results = await asyncio.to_thread(self.service.search_videos, query)
+                    from urllib.parse import urlparse
+                    if urlparse(query).hostname in ('youtube.com', 'www.youtube.com', 'music.youtube.com', 'm.youtube.com', 'youtu.be'):
+                        results = await asyncio.to_thread(self.service.search_videos, query)
+                    else:
+                        results = await asyncio.to_thread(self.service.search, query)
                 else:
                     searches = [asyncio.to_thread(self.service.search, query)]
                     if hasattr(self.service, "search_videos"):
@@ -303,7 +313,8 @@ class Musik(App):
         track = self.selected()
         if track is None:
             return
-        if track.source in ("artist", "album", "playlist"):
+        from .nuclear import item_kind
+        if item_kind(track) in ("artist", "album", "playlist"):
             self.run_worker(partial(self.open_catalog, track), group="catalog", exclusive=True)
             return
         if self.background:
@@ -328,8 +339,9 @@ class Musik(App):
         generation = self.generation
         self.status(f"Loading {track.title}…")
         try:
+            from .nuclear import item_kind
             method = getattr(self.service, {"artist": "artist_catalog", "album": "album_tracks",
-                                           "playlist": "playlist_tracks"}[track.source])
+                                           "playlist": "playlist_tracks"}[item_kind(track)])
             rows = await asyncio.to_thread(method, track)
             if generation != self.generation or not list(self.query("#heading")):
                 return False
@@ -337,13 +349,14 @@ class Musik(App):
             self.results = rows
             self.choose_section()
             self.catalog_title = track.title
-            self.playlist_contents = rows.copy() if track.source != "artist" else []
+            self.playlist_contents = rows.copy() if item_kind(track) != "artist" else []
             self.action_view("results")
             self.status("Enter opens or plays · O plays this collection · Backspace goes back" if rows else "No available releases or tracks found")
             return True
         except Exception as exc:
             if generation == self.generation:
-                self.status(f"Could not open {track.source}: {explain_library_error(exc)}")
+                detail = str(exc) if track.source == "nuclear" else explain_library_error(exc)
+                self.status(f"Could not open {track.source}: {detail}")
             return False
 
     async def open_playlist(self, track):
@@ -491,10 +504,18 @@ class Musik(App):
             elif event.get("reason") == "error":
                 self.status(event.get("_musik_error") or "mpv could not open this audio stream. Run musik doctor for diagnostics.")
 
+    def action_plugins(self):
+        from .plugin_screen import PluginScreen
+        self.push_screen(PluginScreen(self.service))
+
     def action_search(self):
         self.query_one(Input).focus()
 
     def action_browse(self):
+        from .plugin_screen import PluginScreen
+        if isinstance(self.screen, PluginScreen):
+            self.screen.dismiss()
+            return
         self.query_one(DataTable).focus()
 
     def action_view(self, view):
@@ -506,7 +527,8 @@ class Musik(App):
 
     async def action_enqueue(self):
         if track := self.selected():
-            if track.source in ("artist", "album", "playlist"):
+            from .nuclear import item_kind
+            if item_kind(track) in ("artist", "album", "playlist"):
                 self.status("Open this artist, album or playlist with Enter first")
                 return
             if self.background:
@@ -519,7 +541,8 @@ class Musik(App):
 
     async def action_favorite(self):
         if track := self.selected():
-            if track.source in ("artist", "album", "playlist"):
+            from .nuclear import item_kind
+            if item_kind(track) in ("artist", "album", "playlist"):
                 self.status("Open this artist, album or playlist with Enter first")
                 return
             if self.background:
@@ -656,7 +679,13 @@ class Musik(App):
 def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
     parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor", "setup-playback", "plugins"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
-    parser.add_argument("--plugin", help="Nuclear registry plugin ID to inspect (not install)")
+    parser.add_argument("--plugin", help="Nuclear registry plugin ID to inspect or configure")
+    parser.add_argument("--install", dest="install_plugin", help="Install and enable a Nuclear registry plugin")
+    parser.add_argument("--enable", dest="enable_plugin", help="Enable an installed Nuclear plugin")
+    parser.add_argument("--disable", dest="disable_plugin", help="Disable an installed Nuclear plugin")
+    parser.add_argument("--installed", dest="installed_plugins", action="store_true", help="Show enabled providers and compatibility status")
+    parser.add_argument("--provider", help="Select a provider: KIND=ID; ID=builtin restores Musik defaults")
+    parser.add_argument("--setting", help="Set a plugin setting: ID=JSON_VALUE (requires --plugin)")
     parser.add_argument("--url", help="YouTube link to check with musik doctor")
     parser.add_argument("--local", help="Browse a directory of local audio files")
     parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default=None, help="Sign-in browser (default: Windows default browser; Brave on Linux)")
@@ -667,8 +696,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "plugins":
-            from .nuclear import list_plugins
-            list_plugins(args.plugin)
+            from .nuclear import plugin_command
+            plugin_command(args)
             return
         if args.command == "setup-playback":
             from .playback_setup import ensure_helper

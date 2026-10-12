@@ -14,3 +14,7 @@ Musik is licensed GPL-3.0-or-later, compatible with Limusic's GPL-3.0-or-later a
 GitHub fork creation was blocked by a Forbidden response from the authenticated GitHub API. After GitHub CLI authentication is restored, run `bash scripts/fork-upstreams.sh` to create both hosted forks in the authenticated user's account. This does not push or publish Musik.
 
 YouTube playback-token support uses [BgUtils POT Provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider), version 2.0.2 (GPL-3.0-only), and its pinned yt-dlp plugin. The helper is downloaded and built locally during setup.
+
+## Nuclear registry compatibility
+
+Musik implements a Node host for the public [Nuclear plugin SDK](https://github.com/nukeop/nuclear/tree/main/packages/plugin-sdk) interfaces and downloads user-selected releases from the [Nuclear registry](https://github.com/NuclearPlayer/plugin-registry). Plugin code is installed separately with its own manifest/source and license; it is not included in Musik's distribution.
