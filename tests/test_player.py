@@ -44,6 +44,7 @@ async def test_real_mpv_playback_controls_and_eof(tmp_path):
             while True:
                 event = await player.events.get()
                 if event.get("reason") == "eof":
+                    assert event["_musik_generation"] == player.play_generation == 1
                     break
                 assert event.get("reason") != "error"
     finally:

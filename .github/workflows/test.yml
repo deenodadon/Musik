@@ -11,6 +11,13 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mpv
       - run: pip install -e '.[test]'
       - run: pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Linux installer smoke test
+        run: |
+          MUSIK_INSTALL_DIR="$RUNNER_TEMP/musik-install" MUSIK_BIN_DIR="$RUNNER_TEMP/musik-bin" bash scripts/install-linux.sh
+          "$RUNNER_TEMP/musik-bin/musik" --help
   windows:
     timeout-minutes: 10
     runs-on: windows-latest

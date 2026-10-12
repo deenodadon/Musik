@@ -9,11 +9,17 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) { throw "$Executable failed (exit $LASTEXITCODE)." }
 }
 
+# Include changes from prior installers before deciding whether Node is needed.
+$env:PATH += ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $SkipDependencies) {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         throw 'Install App Installer (winget), or install Python 3.12+, Git, mpv and Node.js 22+ manually, then use -SkipDependencies.'
     }
     foreach ($package in @('Python.Python.3.12', 'Git.Git', 'shinchiro.mpv', 'OpenJS.NodeJS.LTS')) {
+        if ($package -eq 'OpenJS.NodeJS.LTS' -and (Get-Command node -ErrorAction SilentlyContinue)) {
+            $nodeMajor = & node -p 'process.versions.node.split(".")[0]'
+            if ($LASTEXITCODE -eq 0 -and [int]$nodeMajor -ge 22) { continue }
+        }
         & winget install --exact --id $package --accept-source-agreements --accept-package-agreements --disable-interactivity
         # WinGet returns this code when a package is already current.
         if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
@@ -26,6 +32,8 @@ $env:PATH = $env:PATH + ';' + [Environment]::GetEnvironmentVariable('Path', 'Mac
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is missing from PATH.' }
 if (-not (Get-Command mpv -ErrorAction SilentlyContinue)) { throw 'mpv.exe is missing from PATH. Reopen PowerShell or add the mpv installation directory to PATH.' }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js 22+ is missing from PATH.' }
+$nodeMajor = & node -p 'process.versions.node.split(".")[0]'
+if ($LASTEXITCODE -ne 0 -or [int]$nodeMajor -lt 22) { throw 'Node.js 22+ is required. Upgrade Node.js, then rerun this installer.' }
 $python = Get-Command py -ErrorAction SilentlyContinue
 if ($python) { $pythonExe = $python.Source; $pythonPrefix = @('-3.12') }
 else {

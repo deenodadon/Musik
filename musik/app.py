@@ -443,6 +443,9 @@ class Musik(App):
         while not p.events.empty():
             event = p.events.get_nowait()
             if event.get("reason") == "eof":
+                expected = event.get("_musik_generation")
+                if expected is not None and expected != getattr(p, "play_generation", expected):
+                    continue
                 if track := self.state.advance(finished=True):
                     self.persist()
                     self.schedule_play(track)

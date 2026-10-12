@@ -198,15 +198,25 @@ class Daemon:
             return
         async with self.lock:
             if operation == "play":
+                previous = self.state.current
                 if "index" in args:
                     index = int(args["index"])
                     if not 0 <= index < len(self.state.queue):
                         raise ValueError("Queue entry no longer exists")
                     track = self.state.queue[index]
+                else:
+                    track = Track(**args["track"])
+                if previous and track.url == previous.url and not self.player.idle:
+                    if "index" in args:
+                        self.state.index = index
+                        self.store.save(self.state)
+                    if self.player.paused:
+                        await self.player.command("cycle", "pause")
+                    return
+                if "index" in args:
                     self.state.index = index
                     self.waiting_for_radio = False
                 else:
-                    track = Track(**args["track"])
                     self.seed_radio(track)
                 await self.play(track)
             elif operation == "playlist":
@@ -231,6 +241,9 @@ class Daemon:
                 else:
                     self.state.favorites.append(track)
             elif operation in ("next", "previous"):
+                expected = args.get("generation")
+                if args.get("finished") and expected is not None and expected != getattr(self.player, "play_generation", expected):
+                    return
                 track = self.state.advance(1 if operation == "next" else -1, finished=bool(args.get("finished", False)))
                 if track:
                     self.waiting_for_radio = False
@@ -293,7 +306,7 @@ class Daemon:
         while True:
             event = await self.player.events.get()
             if event.get("reason") == "eof":
-                await self.dispatch("next", {"finished": True})
+                await self.dispatch("next", {"finished": True, "generation": event.get("_musik_generation")})
             elif event.get("reason") == "error":
                 self.message = "mpv could not play this source; try another track"
 

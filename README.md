@@ -10,23 +10,17 @@ Install with this one-line PowerShell command (Windows 10/11 with WinGet):
 & { $ErrorActionPreference = "Stop"; Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-musik.ps1"; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-musik.ps1" }
 ```
 
-The installer sets up Musik, Python, Git, mpv, Node.js and Brave. Open a **new PowerShell** and run `musik`.
+The installer sets up Musik, Python, Git, mpv and Node.js 22+ when needed. It does not install a browser. Open a **new PowerShell** and run `musik`.
 
-## Nobara Linux
+## Linux
+
+Install on Nobara/Fedora, Ubuntu/Debian, Arch, or openSUSE:
 
 ```bash
-sudo dnf install -y git python3 python3-pip mpv nodejs
-git clone https://github.com/deenodadon/Musik.git ~/Musik
-cd ~/Musik
-python3 -m venv .venv
-.venv/bin/python -m pip install .
-mkdir -p ~/.local/bin
-ln -s "$HOME/Musik/.venv/bin/musik" ~/.local/bin/musik
-export PATH="$HOME/.local/bin:$PATH"
-musik
+curl -fsSL https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-linux.sh -o /tmp/install-musik.sh && bash /tmp/install-musik.sh
 ```
 
-Add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` once to keep the command available.
+The installer sets up dependencies and downloads a verified official Node.js runtime if Node 22+ is missing. Then run `~/.local/bin/musik`, or add `~/.local/bin` to PATH to use `musik`.
 
 ## Use
 

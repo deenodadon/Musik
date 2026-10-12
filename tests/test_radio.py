@@ -109,3 +109,36 @@ async def test_radio_arrival_does_not_skip_idle_selected_song(tmp_path):
     assert daemon.state.index == 0
     assert [t.id for t in daemon.player.played] == ['a']
     assert [t.id for t in daemon.state.queue] == ['a', 'b']
+
+
+async def test_duplicate_selection_and_radio_completion_do_not_restart_song(tmp_path):
+    daemon = Daemon(Store(tmp_path))
+    daemon.player = FakePlayer()
+    release = __import__('threading').Event()
+    class Service:
+        def radio(self, track):
+            release.wait(2)
+            return [Track('b', 'B')]
+    daemon.service = Service()
+    try:
+        await daemon.dispatch('play', {'track': {'id': 'a', 'title': 'A'}})
+        await daemon.dispatch('play', {'index': 0})
+        release.set()
+        await daemon.radio_task
+        assert [t.id for t in daemon.player.played] == ['a']
+        assert [t.id for t in daemon.state.queue] == ['a', 'b']
+    finally:
+        release.set()
+
+
+async def test_stale_end_of_previous_song_does_not_restart_new_selection(tmp_path):
+    from musik.core import State
+    daemon = Daemon(Store(tmp_path))
+    daemon.player = FakePlayer()
+    daemon.player.play_generation = 2
+    daemon.state = State(queue=[Track('a', 'A'), Track('b', 'B')], index=0, repeat=True, repeat_one=True)
+    await daemon.dispatch('next', {'finished': True, 'generation': 1})
+    assert daemon.player.played == []
+    assert daemon.state.index == 0
+    await daemon.dispatch('next', {'finished': True, 'generation': 2})
+    assert [t.id for t in daemon.player.played] == ['a']

@@ -30,6 +30,8 @@ class Player:
         self.pending = {}
         self.counter = 0
         self.events = asyncio.Queue()
+        self.play_generation = 0
+        self.active_generation = 0
         self.position = 0.0
         self.duration = 0.0
         self.paused = False
@@ -104,7 +106,10 @@ class Player:
                         self.idle = bool(value)
                     elif message.get("name") == "pause":
                         self.paused = bool(value)
+                elif message.get("event") == "start-file":
+                    self.active_generation = self.play_generation
                 elif message.get("event") == "end-file":
+                    message["_musik_generation"] = self.active_generation
                     await self.events.put(message)
         finally:
             for future in self.pending.values():
@@ -127,6 +132,7 @@ class Player:
             self.pending.pop(request, None)
 
     async def play(self, track: Track, state: State):
+        self.play_generation += 1
         self.public_fallback = False
         url = track.url
         if track.source != "local":
