@@ -25,7 +25,7 @@ def test_start_command_opens_terminal(monkeypatch, arguments):
     assert checks == [True]
 
 
-@pytest.mark.parametrize('browser,flow', [('edge', 'login_window'), ('firefox', 'interactive_login')])
+@pytest.mark.parametrize('browser,flow', [('edge', 'login_window'), ('firefox', 'login_window')])
 def test_login_uses_detected_default_browser(monkeypatch, browser, flow):
     from musik import auth
     calls = []

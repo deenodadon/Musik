@@ -203,23 +203,19 @@ def interactive_login(browser, profile=None, store=None, account=0):
 
 
 def login_window(browser='brave', store=None, account=0):
-    """Use Chromium app mode with an isolated, temporary sign-in profile.
-
-    This is a real browser window, not an embedded OAuth webview. Google may
-    reject embedded webviews; app mode preserves the browser's normal sandbox.
-    """
+    """Launch a real browser with an empty, temporary sign-in profile."""
     import shutil
     import subprocess
     store = store or Store()
     commands = {'brave': ('brave-browser', 'brave-browser-stable', 'brave'),
                 'chrome': ('google-chrome', 'google-chrome-stable'),
                 'chromium': ('chromium', 'chromium-browser'),
-                'edge': ('microsoft-edge', 'microsoft-edge-stable')}
+                'edge': ('microsoft-edge', 'microsoft-edge-stable'), 'firefox': ('firefox',)}
     if browser not in commands:
-        raise RuntimeError('The dedicated login window requires Brave, Chrome, Chromium or Edge. For Firefox, use --browser-session.')
+        raise RuntimeError('Choose Firefox, Brave, Chrome, Chromium or Edge for the sign-in window.')
     executable = browser_executable(browser)
     flatpak_id = {'brave': 'com.brave.Browser', 'chrome': 'com.google.Chrome',
-                  'chromium': 'org.chromium.Chromium', 'edge': 'com.microsoft.Edge'}[browser]
+                  'chromium': 'org.chromium.Chromium', 'edge': 'com.microsoft.Edge', 'firefox': 'org.mozilla.firefox'}[browser]
     prefix = [executable] if executable else None
     if prefix is None and shutil.which('flatpak'):
         result = subprocess.run(['flatpak', 'info', flatpak_id], stdout=subprocess.DEVNULL,
@@ -237,8 +233,16 @@ def login_window(browser='brave', store=None, account=0):
     with tempfile.TemporaryDirectory(prefix='musik-login-', dir=base) as folder:
         profile = Path(folder)
         url = f'https://music.youtube.com/?authuser={account}'
-        arguments = prefix + [f'--user-data-dir={profile}', f'--app={url}',
-                              '--no-first-run', '--no-default-browser-check', '--disable-background-mode']
+        if browser == 'firefox':
+            (profile / 'user.js').write_text(
+                'user_pref("browser.shell.checkDefaultBrowser", false);\n'
+                'user_pref("browser.aboutwelcome.enabled", false);\n'
+                'user_pref("browser.startup.homepage_override.mstone", "ignore");\n'
+                'user_pref("signon.rememberSignons", false);\n', encoding='utf-8')
+            arguments = prefix + ['--no-remote', '--new-instance', '--profile', str(profile), url]
+        else:
+            arguments = prefix + [f'--user-data-dir={profile}', f'--app={url}',
+                                  '--no-first-run', '--no-default-browser-check', '--disable-background-mode']
         print('Opening the Musik sign-in window…', flush=True)
         print('Sign in, complete any Google verification, and wait for your YouTube Music library to appear.', flush=True)
         print('Then close the sign-in window. Musik will import your session and playlists automatically.', flush=True)

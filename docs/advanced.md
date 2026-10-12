@@ -1,7 +1,7 @@
 # Advanced options
 
-- Python 3.11+ and mpv are required. Online playback also needs Node.js 22+ or a supported Deno/Bun runtime. An isolated Google sign-in window needs a Chromium-based browser; Firefox uses its existing session. Windows detects the default browser without installing one; passwords are entered on Google's page.
-- `musik login --browser brave --browser-session` imports an existing browser profile. Add `--account 1` for its second Google account, or `--profile PATH` for a specific profile. Firefox supports existing-session imports only. `--import-only` skips the browser launch and prompt.
+- Python 3.11+ and mpv are required. Online playback also needs Node.js 22+ or a supported Deno/Bun runtime. Google sign-in opens a fresh temporary browser profile, including Firefox. Windows detects the default browser without installing one; passwords are entered on Google's page.
+- `musik login --browser brave --browser-session` imports an existing browser profile. Add `--account 1` for its second Google account, or `--profile PATH` for a specific profile. Existing-session import is optional; normal sign-in never uses your ordinary browser profile. `--import-only` skips the browser launch and prompt.
 - Imported cookies are private credentials. Unix stores data in `$XDG_STATE_HOME/musik` (default `~/.local/state/musik`); Windows uses `%LOCALAPPDATA%\musik` with inherited user-directory access controls. Do not share the cookie file. Reset does not sign out your ordinary browser.
 - Windows installs under `%LOCALAPPDATA%\Programs\Musik`. The installer supports `-SkipDependencies` and `-InstallDirectory PATH`; the uninstaller supports `-KeepData` and the same custom path.
 - Set `MUSIK_AUTO_UPDATE=0` to disable update checks. Editable development installs do not auto-update. The updater changes the installed package, not your Git checkout. Offline/failed checks retry next launch.

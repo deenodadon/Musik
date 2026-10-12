@@ -623,7 +623,7 @@ def main():
             args.browser = args.browser or default_browser()
             print(f"Using {args.browser} for sign-in.")
             print("This imports your YouTube session locally; no passwords or cookies are sent to GitHub.")
-            if args.import_only or args.browser_session or args.profile or args.browser == "firefox":
+            if args.import_only or args.browser_session or args.profile:
                 flow = login if args.import_only else interactive_login
                 count = flow(args.browser, args.profile, account=args.account)
             else:

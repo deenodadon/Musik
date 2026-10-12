@@ -199,3 +199,44 @@ def test_windows_default_browser_association(monkeypatch, progid, command, expec
         ExpandEnvironmentStrings=lambda value: value)
     monkeypatch.setitem(sys.modules, 'winreg', registry)
     assert windows_default_browser() == expected
+
+
+@pytest.mark.parametrize('successful', [True, False])
+def test_firefox_login_starts_empty_and_removes_profile(tmp_path, monkeypatch, successful):
+    from pathlib import Path
+    import subprocess
+    from musik import auth
+    store = Store(tmp_path / 'musik')
+    profiles = []
+    events = []
+    monkeypatch.setattr(auth, 'browser_executable', lambda browser: '/firefox')
+    class Window:
+        def __init__(self, args, **kwargs):
+            assert '--no-remote' in args and '--new-instance' in args
+            profile = Path(args[args.index('--profile') + 1])
+            profiles.append(profile)
+            assert list(profile.iterdir()) == [profile / 'user.js']
+            assert 'signon.rememberSignons", false' in (profile / 'user.js').read_text()
+            assert args[-1] == 'https://music.youtube.com/?authuser=0'
+            assert not auth.cookie_path(store).exists()
+            events.append('opened')
+        def wait(self):
+            events.append('closed')
+            return 0
+        def poll(self):
+            return 0
+    monkeypatch.setattr(subprocess, 'Popen', Window)
+    def import_session(browser, profile, selected_store, account=0):
+        assert events == ['opened', 'closed']
+        assert browser == 'firefox' and Path(profile) == profiles[-1]
+        if not successful:
+            raise RuntimeError('Not signed in')
+        return 2
+    monkeypatch.setattr(auth, 'login', import_session)
+    if successful:
+        assert auth.login_window('firefox', store) == 2
+    else:
+        with pytest.raises(RuntimeError, match='Not signed in'):
+            auth.login_window('firefox', store)
+        assert not auth.cookie_path(store).exists()
+    assert not profiles[-1].exists()
