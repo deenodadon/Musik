@@ -92,6 +92,40 @@ class MusicService:
         result = self.api.get_playlist(playlist.id, limit=None)
         return [track for item in (result.get("tracks") or []) if (track := song_track(item))]
 
+    def search_videos(self, query):
+        """Search all YouTube uploads, without music-catalog credit filtering."""
+        from urllib.parse import urlparse, parse_qs
+        from yt_dlp import YoutubeDL
+        from .stream import extractor_options
+        parsed = urlparse(query)
+        video_id = None
+        if parsed.scheme in ("http", "https"):
+            host = (parsed.hostname or "").lower()
+            if host == "youtu.be":
+                video_id = parsed.path.strip("/").split("/")[0]
+            elif host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
+                video_id = parse_qs(parsed.query).get("v", [None])[0]
+                if not video_id and parsed.path.startswith(("/shorts/", "/embed/", "/live/")):
+                    video_id = parsed.path.split("/")[2]
+            if not video_id or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                raise ValueError("Paste a YouTube video link, or search by title.")
+        target = f"https://www.youtube.com/watch?v={video_id}" if video_id else f"ytsearch50:{query}"
+        options = dict(extractor_options(), extract_flat=True, skip_download=True)
+        with YoutubeDL(options) as ydl:
+            data = ydl.extract_info(target, download=False)
+        entries = [data] if video_id else (data or {}).get("entries", [])
+        rows, seen = [], set()
+        for item in entries or []:
+            if not isinstance(item, dict):
+                continue
+            identity = item.get("id")
+            if not identity or not re.fullmatch(r"[A-Za-z0-9_-]{11}", identity) or identity in seen:
+                continue
+            seen.add(identity)
+            rows.append(Track(identity, item.get("title") or "Untitled video",
+                              item.get("channel") or item.get("uploader") or "Unknown channel", "video"))
+        return rows
+
     def search(self, query):
         artists = []
         for item in self.api.search(query, filter="artists", limit=20):

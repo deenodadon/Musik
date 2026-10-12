@@ -44,7 +44,7 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | Key | Action |
 | --- | --- |
 | `/`, Enter | Search songs/artists/albums; select an artist or album to browse |
-| Songs / Albums / Artists tabs | Browse separate result sections (F6 / F7 / F8) |
+| Songs / Albums / Artists / Videos tabs | Browse separate result sections (F6 / F7 / F8 / F9) |
 | Backspace | Return to the previous artist/album page |
 | Ctrl+P | Pause/resume, including while searching |
 | Ctrl+Up / Ctrl+Down | Volume up/down |
@@ -54,6 +54,8 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | `a` / `f` / `l` | Add to queue / favorite / lyrics |
 | `s` / `r` / `e` / `v` | Shuffle / repeat / equalizer / speed |
 | Esc / `q` | Focus track list / detach |
+
+Search a title and open **Videos** to choose from YouTube uploads, covers, remixes, and alternate versions. Paste a YouTube video link into search to select that exact upload. Enter plays its audio.
 
 Exact artist-name searches use the artist’s own albums and songs, with at least 25 songs when available. Artist pages show top songs, an all-songs collection when available, and albums/singles. Select a song to start radio, or open an album and press `o` to play it in order.
 

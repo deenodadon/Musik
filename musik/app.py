@@ -52,7 +52,7 @@ class Musik(App):
         ("n", "next", "Next"), ("p", "previous", "Previous"),
         ("a", "enqueue", "Queue +"), ("f", "favorite", "Favorite"),
         ("f6", "section('songs')", "Songs"), ("f7", "section('albums')", "Albums"),
-        ("f8", "section('artists')", "Artists"),
+        ("f8", "section('artists')", "Artists"), ("f9", "section('videos')", "Videos"),
         ("1", "view('results')", "Results"), ("2", "view('queue')", "Queue"),
         ("5", "playlists", "Playlists"),
         ("ctrl+enter", "play_playlist", "Play collection"),
@@ -91,12 +91,12 @@ class Musik(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Input(placeholder="Search YouTube Music, or /local /path/to/music", id="search")
+        yield Input(placeholder="Search music / YouTube videos, paste a YouTube link, or /local PATH", id="search")
         with Horizontal(id="body"):
             with Vertical(id="browse"):
                 yield Static("RESULTS", id="heading", classes="label", markup=False)
                 yield Tabs(Tab("Songs", id="section-songs"), Tab("Albums", id="section-albums"),
-                           Tab("Artists", id="section-artists"), id="result-sections")
+                           Tab("Artists", id="section-artists"), Tab("Videos", id="section-videos"), id="result-sections")
                 yield BrowserTable(id="tracks", cursor_type="row")
             with Vertical(id="side"):
                 yield Static("LYRICS", classes="label")
@@ -140,10 +140,10 @@ class Musik(App):
 
     @staticmethod
     def category(item):
-        return {"artist": "artists", "album": "albums"}.get(item.source, "songs")
+        return {"artist": "artists", "album": "albums", "video": "videos"}.get(item.source, "songs")
 
     def choose_section(self):
-        self.results_section = next((kind for kind in ("songs", "albums", "artists")
+        self.results_section = next((kind for kind in ("songs", "albums", "artists", "videos")
                                      if any(self.category(item) == kind for item in self.results)), "songs")
 
     @on(Tabs.TabActivated, "#result-sections")
@@ -169,7 +169,7 @@ class Musik(App):
         table = tables[0]
         tabs = self.query_one("#result-sections", Tabs)
         tabs.display = self.view == "results"
-        for section in ("songs", "albums", "artists"):
+        for section in ("songs", "albums", "artists", "videos"):
             count = sum(self.category(item) == section for item in self.results)
             tabs.get_tab(f"section-{section}").label = f"{section.title()} ({count})"
         desired = f"section-{self.results_section}"
@@ -177,7 +177,7 @@ class Musik(App):
             tabs.active = desired
         table.clear()
         for track in self.tracks:
-            kind = {"youtube": "Song", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
+            kind = {"youtube": "Song", "video": "Video", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(track.source, track.source)
             table.add_row(kind, track.title, track.artist)
         heading = self.catalog_title if self.view == "results" else self.view.upper()
         self.query_one("#heading", Static).update(f"{heading} · {len(self.tracks)} items")
@@ -199,11 +199,21 @@ class Musik(App):
         generation = self.generation
         self.status("Searching…")
         async def search():
+            errors = []
             try:
                 if query.startswith("/local "):
                     results = await asyncio.to_thread(scan_local, Path(query[7:]).expanduser())
+                elif query.startswith(("https://", "http://")):
+                    results = await asyncio.to_thread(self.service.search_videos, query)
                 else:
-                    results = await asyncio.to_thread(self.service.search, query)
+                    searches = [asyncio.to_thread(self.service.search, query)]
+                    if hasattr(self.service, "search_videos"):
+                        searches.append(asyncio.to_thread(self.service.search_videos, query))
+                    outcomes = await asyncio.gather(*searches, return_exceptions=True)
+                    results = [row for outcome in outcomes if isinstance(outcome, list) for row in outcome]
+                    errors = [str(outcome) for outcome in outcomes if isinstance(outcome, Exception)]
+                    if errors and not results:
+                        raise RuntimeError("; ".join(errors))
                 if generation != self.generation:
                     return
                 self.playlist_contents = []
@@ -212,7 +222,7 @@ class Musik(App):
                 self.results = results
                 self.choose_section()
                 self.action_view("results")
-                self.status(f"Found {len(results)} tracks")
+                self.status(f"Found {len(results)} items" + (" · Some searches failed: " + "; ".join(errors) if errors else ""))
             except Exception as exc:
                 if generation == self.generation:
                     self.status(f"Search failed: {exc}")

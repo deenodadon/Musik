@@ -196,7 +196,7 @@ class Daemon:
                 await self.play(track)
             elif operation == "playlist":
                 tracks = [Track(**item) for item in args["tracks"]]
-                if not tracks or any(t.source not in ("youtube", "local") for t in tracks):
+                if not tracks or any(t.source not in ("youtube", "video", "local") for t in tracks):
                     raise ValueError("Playlist has no playable tracks")
                 self.radio_generation += 1
                 if self.radio_task:
