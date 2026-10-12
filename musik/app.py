@@ -308,7 +308,7 @@ class Musik(App):
         self.run_worker(search(), group="search")
         self.query_one(DataTable).focus()
 
-    @on(DataTable.RowSelected)
+    @on(DataTable.RowSelected, "#tracks")
     async def selected_row(self, event):
         track = self.selected()
         if track is None:

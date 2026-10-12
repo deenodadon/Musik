@@ -390,3 +390,29 @@ async def test_ytdlp_backed_plugin_retains_original_then_alternate_playback(tmp_
     finally:
         await player.close()
         service.nuclear.close()
+
+
+@pytest.mark.skipif(not shutil.which('node'),reason='Node is required for plugin execution')
+async def test_selecting_registry_row_never_plays_underlying_music_result(tmp_path,monkeypatch):
+    from musik.app import Musik
+    from musik.plugin_screen import PluginScreen
+    from textual.widgets import DataTable
+    from test_app import FakePlayer
+    store=plugin_store(tmp_path)
+    service=MusicService(store)
+    monkeypatch.setattr('musik.plugin_screen.registry',lambda:[{'id':'test','name':'Test','categories':['metadata'],'description':'Fixture'}])
+    player=FakePlayer()
+    app=Musik(store=store,service=service,player=player)
+    app.results=[Track('abcdefghijk','Underlying music result')]
+    try:
+        async with app.run_test(size=(110,45)) as pilot:
+            await pilot.press('f10')
+            for _ in range(40):
+                if isinstance(app.screen,PluginScreen) and app.screen.query_one('#plugin-list').row_count:
+                    break
+                await pilot.pause(.02)
+            app.screen.query_one('#plugin-list',DataTable).focus()
+            await pilot.press('enter')
+            await pilot.pause(.1)
+            assert player.played==[]
+    finally:service.nuclear.close()
