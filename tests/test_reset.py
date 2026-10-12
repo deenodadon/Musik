@@ -68,3 +68,25 @@ async def test_reset_stops_live_service_before_removing_state(tmp_path, monkeypa
     finally:
         if store.directory.exists():
             await stop_service(store)
+
+
+async def test_reset_waits_for_daemon_lock_release(tmp_path, monkeypatch):
+    import asyncio
+    from musik import reset
+    store = Store(tmp_path / 'shutdown-state')
+    store.directory.mkdir()
+    (store.directory / 'youtube-cookies.txt').write_text('private session')
+    runtime = runtime_directory(store)
+    async def stopped(store):
+        return True
+    monkeypatch.setattr(reset, 'stop_service', stopped)
+    with (runtime / 'service.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        async def release():
+            await asyncio.sleep(.1)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        task = asyncio.create_task(release())
+        await reset_data(store, tmp_path / 'cache')
+        await task
+    assert not store.directory.exists()
+    assert not runtime.exists()

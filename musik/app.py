@@ -454,13 +454,13 @@ def main():
             from .reset import reset_data
             asyncio.run(reset_data())
             print("Musik reset: all saved sessions, playlists, queue, history, preferences and cache removed.")
-            print("Your music files, installation, and browser sign-in were left intact.")
+            print("No saved Musik login remains. The next musik login opens a fresh sign-in window.")
             return
         if args.command == "logout":
             from .auth import logout
             asyncio.run(stop_service(Store()))
             logout()
-            print("Signed out and playback stopped. Imported playlist names remain cached locally.")
+            print("Signed out and playback stopped. Saved session, account selection and playlist cache removed.")
             return
         if args.command == "stop":
             stopped = asyncio.run(stop_service(Store()))

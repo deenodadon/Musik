@@ -57,6 +57,7 @@ def login(browser="firefox", profile=None, store=None, account=0):
                 sandboxed = Path.home() / '.var/app' / application / '.mozilla/firefox'
             if not native.exists() and sandboxed.is_dir():
                 profile = str(sandboxed)
+    stage = "browser extraction"
     try:
         extracted = extract_cookies_from_browser(browser, profile, logger=QuietLogger())
         filtered = http.cookiejar.MozillaCookieJar()
@@ -64,11 +65,21 @@ def login(browser="firefox", profile=None, store=None, account=0):
             domain = cookie.domain.lstrip('.')
             if domain == 'youtube.com' or domain.endswith('.youtube.com'):
                 filtered.set_cookie(cookie)
-        api = YTMusic(auth=auth_headers(filtered, account), requests_session=TimeoutSession())
+        stage = "session reading"
+        headers = auth_headers(filtered, account)
+        stage = "account validation"
+        api = YTMusic(auth=headers, requests_session=TimeoutSession())
         # A successful authenticated library operation validates the session.
         playlists = api.get_library_playlists(limit=None)
-    except Exception:
-        raise RuntimeError("Sign-in failed. Sign in to YouTube Music in the selected browser, close the browser, and retry. Browser keyring access and network access are required.") from None
+    except Exception as exc:
+        if stage == "browser extraction":
+            detail = f"Browser cookies could not be read ({type(exc).__name__}). Close the browser and unlock your desktop keyring."
+        elif stage == "session reading":
+            detail = "No readable signed-in YouTube session was found. Wait for your music library before closing the window; unlock KDE Wallet if requested."
+        else:
+            from .service import explain_library_error
+            detail = explain_library_error(exc)
+        raise RuntimeError(f"Sign-in failed during {stage}. {detail}") from None
     store.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, name = tempfile.mkstemp(dir=store.directory, prefix='.cookies-')
     os.close(fd)
@@ -87,7 +98,10 @@ def login(browser="firefox", profile=None, store=None, account=0):
 
 
 def logout(store=None):
+    store = store or Store()
     cookie_path(store).unlink(missing_ok=True)
+    for name in ('account.json', 'playlists.json'):
+        (store.directory / name).unlink(missing_ok=True)
 
 
 def open_sign_in(browser, account=0):

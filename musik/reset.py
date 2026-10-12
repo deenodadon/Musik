@@ -1,4 +1,5 @@
 """Remove Musik-owned user data after stopping playback and locking updates."""
+import asyncio
 import fcntl
 import os
 import shutil
@@ -25,10 +26,16 @@ async def reset_data(store=None, cache_directory=None):
         await stop_service(store)
         runtime = runtime_directory(store)
         with (runtime / 'service.lock').open('a') as service_lock:
-            try:
-                fcntl.flock(service_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise RuntimeError('Playback is still shutting down. Retry musik reset.') from None
+            # mpv/socket cleanup can precede release of the daemon's lock.
+            # Wait for that final release instead of requiring a second reset.
+            for _ in range(100):
+                try:
+                    fcntl.flock(service_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    await asyncio.sleep(.05)
+            else:
+                raise RuntimeError('Playback did not finish shutting down; no saved data was deleted.')
             shutil.rmtree(directory)
             if cache.exists():
                 shutil.rmtree(cache)

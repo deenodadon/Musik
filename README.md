@@ -135,13 +135,15 @@ Authenticated playback uses the same session through yt-dlp. This may allow age-
 musik logout
 ```
 
-Logout stops background playback and removes the imported cookies; it does not sign out your browser. Playlist names remain cached locally. Real account sign-in cannot be validated in the cloud without your browser session; tests use synthetic cookies and mocked account responses.
+Logout stops background playback and removes the imported cookies; it does not sign out your browser. Cached playlist names and account selection are removed too. Real account sign-in cannot be validated in the cloud without your browser session; tests use synthetic cookies and mocked account responses.
 
 ## Start over / purge all Musik data
 
 ```sh
 musik reset
 ```
+
+Reset leaves no saved Musik login. Every subsequent `musik login` opens a new isolated profile and requires signing in again. Your ordinary Brave profile is never reused unless you explicitly request `--browser-session` or `--import-only`.
 
 Reset stops the playback service and closes connected TUIs, then permanently removes Musik's saved session, selected account, imported playlists, queue, favorites, history, preferences, update receipt, cache and runtime files. It leaves installed code, your source checkout, local music files, and browser cookies intact. If an automatic update is still running, wait for it to finish and retry reset.
 
