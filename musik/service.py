@@ -358,7 +358,7 @@ def save_playlists(store, playlists):
 def cached_playlists(store):
     try:
         data = json.loads((store.directory / "playlists.json").read_text())
-        return local + [Track(p["playlistId"], p["title"], "Your playlist", "playlist") for p in data]
+        return [Track(p["playlistId"], p["title"], "Your playlist", "playlist") for p in data]
     except (OSError, ValueError, KeyError, TypeError):
         return []
 

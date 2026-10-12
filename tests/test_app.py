@@ -41,6 +41,23 @@ class FakeService:
         return "A line of lyrics"
 
 
+async def test_startup_restores_saved_playlists(tmp_path):
+    from musik.service import save_playlists
+
+    store = Store(tmp_path)
+    save_playlists(store, [{"playlistId": "PLsaved", "title": "Saved mix"}])
+    cached = (store.directory / "playlists.json").read_bytes()
+    app = Musik(store=store, service=FakeService(), player=FakePlayer())
+    async with app.run_test(size=(110, 40)) as pilot:
+        await pilot.pause()
+        assert app.ready
+        assert app.playlists == [Track("PLsaved", "Saved mix", "Your playlist", "playlist")]
+        app.action_view("playlists")
+        assert app.query_one(DataTable).row_count == 1
+        assert "Saved mix" in str(app.query_one(DataTable).get_row_at(0))
+    assert (store.directory / "playlists.json").read_bytes() == cached
+
+
 async def test_keyboard_search_queue_play_and_restore(tmp_path):
     player = FakePlayer()
     app = Musik(store=Store(tmp_path), service=FakeService(), player=player)
