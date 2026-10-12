@@ -31,7 +31,7 @@ async def test_tui_detaches_daemon_advances_reconnects_and_cli_stops(tmp_path, m
     # Loud tone ensures audio metadata can distinguish it from silence.
     import math
     import struct
-    for name, duration in [("first", 1), ("second", 8)]:
+    for name, duration in [("first", 3), ("second", 8)]:
         with wave.open(str(tmp_path / f"{name}.wav"), "wb") as f:
             f.setnchannels(1)
             f.setsampwidth(2)
@@ -49,10 +49,19 @@ async def test_tui_detaches_daemon_advances_reconnects_and_cli_stops(tmp_path, m
             await pilot.press("a", "2", "enter")
             await pilot.pause(.3)
             assert app.state.current.title == "first"
+            # Wait for measured audio instead of assuming every mpv/CI host
+            # has produced metadata after exactly 300 ms. The first tone is
+            # long enough that playback still advances after detaching.
+            async with asyncio.timeout(2):
+                while max(app.player.levels) <= 0:
+                    await pilot.pause(.05)
             assert max(app.player.levels) > 0
         # on_unmount returns but playback and queue advancement continue.
-        await asyncio.sleep(1.2)
         await client.start()
+        async with asyncio.timeout(5):
+            while client.state.current.title != "second" or client.position <= 0:
+                await asyncio.sleep(.05)
+                await client.poll()
         assert client.state.current.title == "second"
         assert client.position > 0
         assert not client.idle

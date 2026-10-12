@@ -302,3 +302,32 @@ def test_plugin_queue_ids_survive_reordering_and_control_routes_correctly(tmp_pa
         assert operations[-1][0]=='settings'
         assert operations[-1][1]['volume']==80
     finally:runtime.close()
+
+
+@pytest.mark.skipif(not shutil.which('node'),reason='Node is required for plugin execution')
+async def test_enter_in_plugin_settings_never_submits_a_music_search(tmp_path,monkeypatch):
+    from musik.app import Musik
+    from musik.plugin_screen import PluginScreen
+    from textual.widgets import Input
+    from test_app import FakePlayer
+    store=plugin_store(tmp_path)
+    service=MusicService(store)
+    searches=[]
+    monkeypatch.setattr(service,'search',lambda query:searches.append(query) or [])
+    monkeypatch.setattr(service,'search_videos',lambda query:searches.append(query) or [])
+    monkeypatch.setattr('musik.plugin_screen.registry',lambda:[{'id':'test','name':'Test','categories':['metadata'],'description':'Fixture'}])
+    app=Musik(store=store,service=service,player=FakePlayer())
+    try:
+        async with app.run_test(size=(110,45)) as pilot:
+            await pilot.press('f10')
+            for _ in range(40):
+                if isinstance(app.screen,PluginScreen) and app.screen.query_one('#plugin-list').row_count:
+                    break
+                await pilot.pause(.02)
+            value=app.screen.query_one('#plugin-setting-value',Input)
+            value.value='private-setting-value'
+            value.focus()
+            await pilot.press('enter')
+            await pilot.pause(.1)
+            assert searches==[]
+    finally:service.nuclear.close()

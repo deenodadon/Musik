@@ -265,7 +265,7 @@ class Musik(App):
         except OSError as exc:
             self.status(f"Could not save: {exc}")
 
-    @on(Input.Submitted)
+    @on(Input.Submitted, "#search")
     async def submitted(self, event):
         query = event.value.strip()
         if not query:
