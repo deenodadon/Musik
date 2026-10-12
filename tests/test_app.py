@@ -185,3 +185,23 @@ async def test_playing_highlight_remains_while_browsing_and_tracks_playback(tmp_
         player.idle = True
         await app.tick()
         assert table.get_row_at(0)[0] == 'Song'
+
+
+async def test_escape_focus_and_seek_shortcuts_from_search_menu_and_tracks(tmp_path):
+    from textual.widgets import Tabs
+    player = FakePlayer()
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=player)
+    async with app.run_test(size=(120, 40)) as pilot:
+        search = app.query_one(Input)
+        search.value = 'keep my query'
+        search.focus()
+        await pilot.press('ctrl+right', 'ctrl+left')
+        assert search.value == 'keep my query'
+        menu = app.query_one('#main-menu', Tabs)
+        menu.focus()
+        await pilot.press('ctrl+right', 'ctrl+left')
+        await pilot.press('escape')
+        assert app.focused is app.query_one(DataTable)
+        await pilot.press('right', 'left', 'escape')
+        assert app.focused is app.query_one(DataTable)
+        assert player.commands == [('seek', 10, 'relative'), ('seek', -10, 'relative')] * 3

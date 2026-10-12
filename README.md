@@ -53,6 +53,8 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | Enter, then `o` | Open an album or playlist, then play it in order |
 | `a` / `f` / `l` | Add to queue / favorite / lyrics |
 | `s` / `r` / `e` / `v` | Shuffle / repeat / equalizer / speed |
+| Ctrl+Left / Ctrl+Right | Seek backward / forward 10 seconds from any focus |
+| Left / Right | Seek 10 seconds when the track list is focused |
 | Esc / `q` | Focus track list / detach |
 
 Press `r` to cycle **Off → Song → Playlist**. Song repeats only the current track, including in background playback; Next still skips it.

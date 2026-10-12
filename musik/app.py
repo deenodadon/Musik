@@ -21,6 +21,10 @@ from .service import MusicService, cached_playlists, explain_library_error
 
 class BrowserTable(DataTable):
     """Activate a row on one click, as a music browser does."""
+    BINDINGS = [
+        Binding("right", "app.seek(10)", "+10s", show=False),
+        Binding("left", "app.seek(-10)", "-10s", show=False),
+    ]
     async def _on_click(self, event):
         event.prevent_default()
         previous = self.cursor_coordinate
@@ -70,8 +74,10 @@ class Musik(App):
         Binding("plus,equals_sign", "volume(5)", "Volume +", show=False),
         Binding("minus", "volume(-5)", "Volume -", show=False),
         ("right", "seek(10)", "+10s"), ("left", "seek(-10)", "-10s"),
+        Binding("ctrl+right", "seek(10)", "Seek +10s", priority=True),
+        Binding("ctrl+left", "seek(-10)", "Seek -10s", priority=True),
         ("e", "equalizer", "EQ"), ("v", "speed", "Speed"),
-        ("q", "quit", "Detach"), ("escape", "browse", "Browse"),
+        ("q", "quit", "Detach"), Binding("escape", "browse", "Browse", priority=True),
     ]
 
     def __init__(self, store=None, service=None, player=None, local=None):
