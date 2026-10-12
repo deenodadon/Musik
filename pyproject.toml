@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "musik-tui"
+version = "0.2.0"
+description = "A keyboard-first local and YouTube Music player"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+dependencies = ["textual==8.2.8", "ytmusicapi==1.12.3", "yt-dlp==2026.8.19"]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "pytest-asyncio==1.4.0"]
+
+[project.scripts]
+musik = "musik.app:main"
+
+[tool.setuptools.packages.find]
+include = ["musik*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
