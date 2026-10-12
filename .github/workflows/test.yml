@@ -40,8 +40,10 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install-windows.ps1", [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count) { throw ($errors | Out-String) }
+          foreach ($script in @('install-windows.ps1', 'uninstall-windows.ps1')) {
+            [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/$script", [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
       - name: Test Windows playback and background control
         shell: pwsh
         run: |
@@ -66,6 +68,9 @@ jobs:
           & "$install/bin/musik.cmd" --help
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$install/bin/musik.cmd" stop
-          exit $LASTEXITCODE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/uninstall-windows.ps1 -InstallDirectory $install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Test-Path $install) { throw 'Uninstaller left the installation behind.' }
         env:
           MUSIK_AUTO_UPDATE: '0'
