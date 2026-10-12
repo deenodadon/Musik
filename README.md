@@ -55,7 +55,7 @@ Closing the terminal or pressing **Q** keeps music playing. Launches check for u
 | `s` / `r` / `e` / `v` | Shuffle / repeat / equalizer / speed |
 | Esc / `q` | Focus track list / detach |
 
-Press `r` (or click **Repeat**) to cycle **Off → Song → Playlist**. Song repeats only the current track, including in background playback; Next still skips it.
+Press `r` to cycle **Off → Song → Playlist**. Song repeats only the current track, including in background playback; Next still skips it.
 
 Selecting a track already in your queue preserves that queue. With shuffle off, the next track follows its displayed order.
 

@@ -8,7 +8,7 @@ from textual import on
 from textual.binding import Binding
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Footer, Header, Input, Static, Tabs, Tab, Button
+from textual.widgets import DataTable, Footer, Header, Input, Static, Tabs, Tab
 
 from .core import Store, scan_local
 from .player import FILTERS
@@ -41,7 +41,6 @@ class Musik(App):
     #body { height: 1fr; margin: 0 2; }
     #browse { width: 2fr; }
     #side { width: 1fr; margin-left: 2; }
-    #repeat-toggle { height: 3; width: auto; margin: 0 2; }
     #queue-help { height: auto; color: #8899aa; }
     #tracks { height: 1fr; border: round #435674; }
     #lyrics { height: 1fr; border: round #435674; padding: 1; overflow-y: auto; }
@@ -110,7 +109,6 @@ class Musik(App):
             with Vertical(id="side"):
                 yield Static("LYRICS", classes="label")
                 yield Static("Select a song and press L.\n\n1 Results · 2 Queue\n3 Favorites · 4 History\nA Add to queue · Enter Play\nS Shuffle · R Repeat\nE Equalizer · V Speed", id="lyrics", markup=False)
-        yield Button("Repeat: Off", id="repeat-toggle")
         yield Visualizer(id="visualizer", markup=False)
         yield Static("Nothing playing", id="now", markup=False)
         yield Static("Ready to browse", id="status", markup=False)
@@ -417,7 +415,6 @@ class Musik(App):
                 return
         if self.highlight_stamp != (self.state.index, self.state.current, self.player.idle, self.player.paused):
             self.refresh_tracks()
-        self.query_one("#repeat-toggle", Button).label = f"Repeat: {self.state.repeat_mode}"
         track = self.state.current
         p = self.player
         if track:
@@ -544,10 +541,6 @@ class Musik(App):
         self.state.shuffle = not self.state.shuffle
         await self.apply_settings()
 
-    @on(Button.Pressed, "#repeat-toggle")
-    async def repeat_clicked(self):
-        await self.action_repeat()
-
     async def set_repeat_mode(self, mode):
         if mode is None:
             return
@@ -558,7 +551,6 @@ class Musik(App):
             self.state.repeat, self.state.repeat_one = previous
             self.notify("Restart background playback: run musik stop, then musik, and select Song again.", severity="warning", timeout=12)
             return
-        self.query_one("#repeat-toggle", Button).label = f"Repeat: {self.state.repeat_mode}"
         self.status(f"Repeat: {self.state.repeat_mode}")
 
     async def action_repeat(self):

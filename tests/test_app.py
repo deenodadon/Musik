@@ -147,14 +147,13 @@ async def test_click_queue_menu_shows_tracks_and_removal(tmp_path):
         assert app.view == 'results'
 
 
-async def test_repeat_button_cycles_song_queue_off(tmp_path):
-    from textual.widgets import Button
+async def test_repeat_shortcut_cycles_song_playlist_off(tmp_path):
     app = Musik(store=Store(tmp_path), service=FakeService(), player=FakePlayer())
     async with app.run_test(size=(120, 45)) as pilot:
-        await pilot.click('#repeat-toggle')
+        assert not list(app.query('#repeat-toggle'))
+        await pilot.press('escape', 'r')
         await pilot.pause()
         assert app.state.repeat_mode == 'Song'
-        assert str(app.query_one('#repeat-toggle', Button).label) == 'Repeat: Song'
         await pilot.press('escape', 'r')
         assert app.state.repeat_mode == 'Playlist'
         await pilot.press('r')
