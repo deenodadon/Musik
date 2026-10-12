@@ -14,7 +14,7 @@ from .daemon import BackgroundPlayer, stop_service
 from .visualizer import Visualizer
 from .updater import start_check, read_status
 from dataclasses import asdict
-from .service import MusicService, cached_playlists
+from .service import MusicService, cached_playlists, explain_library_error
 
 
 class Musik(App):
@@ -189,9 +189,9 @@ class Musik(App):
             self.playlist_contents = await asyncio.to_thread(self.service.playlist_tracks, track)
             self.results = self.playlist_contents.copy()
             self.action_view("results")
-            self.status(f"{track.title} · Ctrl+Enter plays the whole playlist")
-        except Exception:
-            self.status("Could not load playlist. Check your session and network access.")
+            self.status(f"{track.title} · Ctrl+Enter or O plays the whole playlist" if self.playlist_contents else "This playlist has no available tracks for your account.")
+        except Exception as exc:
+            self.status(explain_library_error(exc))
 
     def action_playlists(self):
         self.action_view("playlists")
@@ -201,8 +201,8 @@ class Musik(App):
                 if self.view == "playlists":
                     self.refresh_tracks()
                 self.status(f"Imported {len(self.playlists)} playlists")
-            except Exception:
-                self.status("Playlist import unavailable. Sign in with musik login, then press 5 to retry.")
+            except Exception as exc:
+                self.status(explain_library_error(exc))
         self.run_worker(refresh(), group="library", exclusive=True)
 
     async def action_play_playlist(self):

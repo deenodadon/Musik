@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from .auth import cookie_path, cookie_jar, auth_headers
 import requests
+import http.cookiejar
 
 
 class TimeoutSession(requests.Session):
@@ -12,6 +13,40 @@ class TimeoutSession(requests.Session):
         if kwargs.get("timeout") is None:
             kwargs["timeout"] = 20
         return super().request(method, url, **kwargs)
+
+
+def song_track(item):
+    if not isinstance(item, dict) or not item.get("videoId") or item.get("isAvailable") is False:
+        return None
+    names = [artist.get("name") for artist in (item.get("artists") or [])
+             if isinstance(artist, dict) and isinstance(artist.get("name"), str)]
+    return Track(item["videoId"], item.get("title") or "Untitled", ", ".join(names) or "Unknown artist")
+
+
+def explain_library_error(error):
+    """Actionable categories without echoing response bodies or credentials."""
+    import re
+    if isinstance(error, requests.exceptions.Timeout):
+        return "YouTube request timed out. Try opening the playlist again."
+    if isinstance(error, requests.exceptions.ConnectionError):
+        return "Could not connect to YouTube. Check your connection or proxy."
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status is None:
+        match = re.search(r"\b(401|403|404|429|5\d\d)\b", str(error))
+        status = int(match.group(1)) if match else None
+    if status in (401, 403):
+        return "YouTube denied playlist access. Re-import the browser account that owns this playlist with musik login --browser brave."
+    if status == 404:
+        return "Playlist not found or unavailable to this account. Press 5 to refresh your library."
+    if status == 429:
+        return "YouTube rate-limited the request. Wait a little and try again."
+    if status and status >= 500:
+        return "YouTube returned a server error. Try again later."
+    if isinstance(error, (KeyError, TypeError, IndexError)):
+        return f"Unsupported YouTube playlist response ({type(error).__name__}). Refresh your sign-in and retry."
+    if isinstance(error, (RuntimeError, ValueError, http.cookiejar.LoadError)):
+        return "Account session unavailable. Run musik login --browser brave, then press 5 to refresh."
+    return f"Playlist loading failed ({type(error).__name__}). Report this message so the cause can be checked."
 
 
 class MusicService:
@@ -41,15 +76,11 @@ class MusicService:
 
     def playlist_tracks(self, playlist):
         result = self.api.get_playlist(playlist.id, limit=None)
-        return [Track(p["videoId"], p.get("title") or "Untitled",
-                      ", ".join(a["name"] for a in p.get("artists", [])) or "Unknown artist")
-                for p in result.get("tracks", []) if p.get("videoId")]
+        return [track for item in (result.get("tracks") or []) if (track := song_track(item))]
 
     def search(self, query):
-        return [Track(item["videoId"], item.get("title", "Untitled"),
-                      ", ".join(a["name"] for a in item.get("artists", [])))
-                for item in self.api.search(query, filter="songs", limit=30)
-                if item.get("videoId")]
+        return [track for item in self.api.search(query, filter="songs", limit=30)
+                if (track := song_track(item))]
 
     def radio(self, track, limit=25):
         if track.source == "local":
@@ -59,13 +90,17 @@ class MusicService:
         result = self.api.get_watch_playlist(videoId=track.id, radio=True, limit=limit + 1)
         seen = {track.id}
         tracks = []
-        for item in result.get("tracks", []):
+        for item in (result.get("tracks") or []):
+            if not isinstance(item, dict):
+                continue
             video_id = item.get("videoId")
             if not video_id or video_id in seen:
                 continue
             seen.add(video_id)
-            tracks.append(Track(video_id, item.get("title") or "Untitled",
-                                ", ".join(a["name"] for a in item.get("artists", [])) or "Unknown artist"))
+            track = song_track(item)
+            if track is None:
+                continue
+            tracks.append(track)
             if len(tracks) >= limit:
                 break
         return tracks
