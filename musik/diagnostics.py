@@ -12,7 +12,17 @@ class DiagnosticLogger(QuietLogger):
     def __init__(self):
         self.notes = set()
 
+    def debug(self, message, **kwargs):
+        text = str(message).lower()
+        if 'generating a' in text and 'po token' in text:
+            self.notes.add('Playback-token generation attempted')
+        if ('bgutil:script' in text or '_get_pot_via_script' in text) and any(word in text for word in ('failed', 'timeout', 'unable to run', 'did not respond')):
+            self.notes.add('Playback-token provider reported a failure')
+
+    info = debug
+
     def warning(self, message):
+        self.debug(message)
         message = str(message).lower()
         for text, label in (
             ('po token', 'YouTube requires a playback token'),
@@ -23,6 +33,46 @@ class DiagnosticLogger(QuietLogger):
         ):
             if text in message:
                 self.notes.add(label)
+
+
+def probe_stream(info):
+    """Read at most 16 KiB per request; return safe status labels only."""
+    import requests
+    from urllib.parse import urlparse, urljoin, parse_qs
+    url = info.get('url')
+    if not url:
+        return ['Selected stream: unavailable']
+    protocol = str(info.get('protocol') or urlparse(url).scheme)
+    labels = ['Selected stream: HLS' if protocol.startswith('m3u8') else 'Selected stream: direct audio']
+    parsed = urlparse(url)
+    attached = 'pot' in parse_qs(parsed.query) or '/pot/' in parsed.path
+    labels.append('Playback token in stream URL: ' + ('present' if attached else 'not visible'))
+    headers = {key: value for key, value in (info.get('http_headers') or {}).items()
+               if key.lower() in ('user-agent', 'referer', 'origin')}
+    headers['Range'] = 'bytes=0-1023'
+    for depth in range(3):
+        try:
+            with requests.get(url, headers=headers, timeout=15, stream=True) as response:
+                labels.append(('Audio server probe' if depth == 0 else 'Audio segment probe') + f': HTTP {response.status_code}')
+                if response.status_code not in (200, 206):
+                    break
+                if not protocol.startswith('m3u8'):
+                    break
+                raw = response.raw.read(16384)
+                content = raw.decode('utf-8', errors='replace')
+                if len(raw) == 16384 and not content.endswith('\n'):
+                    content = content.rsplit('\n', 1)[0]
+                if not content.lstrip().startswith('#EXTM3U'):
+                    break
+                next_url = next((line.strip() for line in content.splitlines()
+                                 if line.strip() and not line.startswith('#')), None)
+                if not next_url:
+                    break
+                url = urljoin(response.url, next_url)
+        except requests.RequestException:
+            labels.append('Audio server probe: network request failed')
+            break
+    return labels
 
 
 def doctor(store=None, url=None):
@@ -64,9 +114,13 @@ def doctor(store=None, url=None):
                     jar.set_cookie(cookie)
                 ydl.cookiejar = jar
             data = ydl.extract_info(url, download=False, process=False)
-        formats = [item for item in (data or {}).get('formats', [])
-                   if item.get('url') and item.get('acodec') not in (None, 'none')]
-        print(f'Audio formats available: {len(formats)}')
+            formats = [item for item in (data or {}).get('formats', [])
+                       if item.get('url') and item.get('acodec') not in (None, 'none')]
+            print(f'Audio formats available: {len(formats)}')
+            if formats:
+                selected = ydl.process_ie_result(data, download=False)
+                for label in probe_stream(selected):
+                    print(label)
     except Exception as error:
         message = str(error).lower()
         category = ('age/account access denied' if any(text in message for text in ('age-restricted', 'confirm your age'))
