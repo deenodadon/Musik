@@ -279,8 +279,12 @@ class Musik(App):
                 if query.startswith("/local "):
                     results = await asyncio.to_thread(scan_local, Path(query[7:]).expanduser())
                 elif query.startswith(("https://", "http://")):
-                    from urllib.parse import urlparse
-                    if urlparse(query).hostname in ('youtube.com', 'www.youtube.com', 'music.youtube.com', 'm.youtube.com', 'youtu.be'):
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(query)
+                    params = parse_qs(parsed.query)
+                    if parsed.path == '/playlist' or ('list' in params and 'v' not in params and parsed.path in ('/', '/watch')):
+                        results = await asyncio.to_thread(self.service.search, query)
+                    elif parsed.hostname in ('youtube.com', 'www.youtube.com', 'music.youtube.com', 'm.youtube.com', 'youtu.be'):
                         results = await asyncio.to_thread(self.service.search_videos, query)
                     else:
                         results = await asyncio.to_thread(self.service.search, query)

@@ -416,3 +416,42 @@ async def test_selecting_registry_row_never_plays_underlying_music_result(tmp_pa
             await pilot.pause(.1)
             assert player.played==[]
     finally:service.nuclear.close()
+
+
+def test_ytdlp_playlist_bridge_returns_every_entry(tmp_path,monkeypatch):
+    class Extractor:
+        def __init__(self,options):
+            assert options['extract_flat']
+            assert options['noplaylist'] is False
+            assert 'playlistend' not in options
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def extract_info(self,url,download=False):
+            return {'id':'list','title':'Full playlist','entries':[{'id':f'{index:011d}','title':f'Song {index}'} for index in range(26)]}
+    monkeypatch.setattr('yt_dlp.YoutubeDL',Extractor)
+    runtime=nuclear.NuclearRuntime(Store(tmp_path))
+    try:
+        result=runtime._callback('ytdlp.getPlaylist',['https://www.youtube.com/playlist?list=PLexample'])
+        assert len(result['entries'])==26
+    finally:runtime.close()
+
+
+async def test_youtube_playlist_link_goes_to_playlist_provider_not_video_search(tmp_path):
+    from musik.app import Musik
+    from textual.widgets import Input
+    from test_app import FakePlayer
+    link='https://www.youtube.com/playlist?list=PLexample'
+    calls=[]
+    class Service:
+        def search(self,query):
+            calls.append(query)
+            return [nuclear.convert_item({'title':'Playlist','source':{'provider':'youtube-playlists','id':link}},'playlist','youtube-playlists')]
+        def search_videos(self,query):
+            raise AssertionError('A playlist link must not be treated as a video')
+    app=Musik(store=Store(tmp_path),service=Service(),player=FakePlayer())
+    async with app.run_test(size=(110,40)) as pilot:
+        app.query_one('#search',Input).value=link
+        await pilot.press('enter')
+        await pilot.pause()
+        assert calls==[link]
+        assert nuclear.item_kind(app.tracks[0])=='playlist'

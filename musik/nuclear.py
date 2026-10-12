@@ -373,11 +373,27 @@ class NuclearRuntime:
                     while len(self.youtube_streams)>256:
                         self.youtube_streams.pop(next(iter(self.youtube_streams)))
                 return {'stream_url': info['url'], 'duration': info.get('duration'), 'title': info.get('title'), 'container': info.get('ext'), 'codec': info.get('acodec'), 'artists': info.get('artists', []), 'album_artists': []}
-            options = extractor_options(self.store)
-            options.update(extract_flat=True, playlistend=min(int(args[1]) if len(args)>1 else 10, 100))
+            options = extractor_options()
+            options.update(extract_flat=True)
+            if action == 'search':
+                options['playlistend'] = max(1, min(int(args[1]) if len(args)>1 else 10, 100))
+            else:
+                options['noplaylist'] = False
             with YoutubeDL(options) as ydl:
+                from .auth import cookie_jar
+                from yt_dlp.cookies import YoutubeDLCookieJar
+                saved = cookie_jar(self.store)
+                if saved is not None:
+                    jar = YoutubeDLCookieJar()
+                    for cookie in saved:
+                        jar.set_cookie(cookie)
+                    ydl.cookiejar = jar
                 info = ydl.extract_info(f'ytsearch{options["playlistend"]}:{args[0]}' if action=='search' else args[0], download=False)
-            entries = [{k:item.get(k) for k in ('id','title','duration','thumbnail','channel','thumbnails')} for item in info.get('entries', []) if item]
+            entries = []
+            for item in info.get('entries', []):
+                if not item or not item.get('id'):
+                    continue
+                entries.append({**{k:item.get(k) for k in ('id','title','duration','thumbnail')}, 'channel':item.get('channel') or item.get('uploader'), 'thumbnails':item.get('thumbnails') or []})
             return entries if action=='search' else {'id':info.get('id'),'title':info.get('title'),'entries':entries}
         if method == 'shell.openExternal':
             if urlparse(args[0]).scheme not in ('https', 'http'):
