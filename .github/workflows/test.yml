@@ -30,6 +30,7 @@ jobs:
           $mpv = Get-ChildItem -Path $roots -Filter mpv.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $mpv) { throw "Installed mpv.exe was not found; playback tests must not be skipped." }
           "MUSIK_MPV=$($mpv.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $mpv.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & $mpv.FullName --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - run: pip install -e '.[test]'
@@ -49,5 +50,17 @@ jobs:
             python -c "from pathlib import Path; text=Path('windows-tests.log').read_text(encoding='utf-8', errors='replace'); print('::error title=Windows test failure::'+text[-50000:].replace('%','%25').replace('\n','%0A').replace('\r','%0D'))"
           }
           exit $testExit
+        env:
+          MUSIK_AUTO_UPDATE: '0'
+      - name: Exercise per-user PowerShell installer
+        shell: pwsh
+        run: |
+          $install = Join-Path $env:RUNNER_TEMP 'musik-install-validation'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-windows.ps1 -SkipDependencies -InstallDirectory $install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$install/bin/musik.cmd" --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$install/bin/musik.cmd" stop
+          exit $LASTEXITCODE
         env:
           MUSIK_AUTO_UPDATE: '0'
