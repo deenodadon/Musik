@@ -15,6 +15,7 @@ class FakePlayer:
     def __init__(self):
         self.events = asyncio.Queue()
         self.played = []
+        self.commands = []
 
     async def start(self):
         pass
@@ -26,7 +27,7 @@ class FakePlayer:
         self.played.append(track)
 
     async def command(self, *args):
-        pass
+        self.commands.append(args)
 
     async def close(self):
         pass
@@ -88,3 +89,15 @@ async def test_volume_shortcuts_with_search_and_track_focus(tmp_path):
         app.state.volume = 0
         await pilot.press("ctrl+down")
         assert player.volume == 0
+
+
+async def test_pause_shortcut_works_in_search(tmp_path):
+    player = FakePlayer()
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=player)
+    async with app.run_test(size=(110, 40)) as pilot:
+        app.query_one(Input).focus()
+        await pilot.press("ctrl+p")
+        assert player.commands[-1] == ("cycle", "pause")
+        assert app.query_one(Input).value == ""
+        await pilot.press("escape", "space")
+        assert player.commands == [("cycle", "pause"), ("cycle", "pause")]

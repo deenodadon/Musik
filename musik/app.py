@@ -12,6 +12,7 @@ from .core import Store, scan_local
 from .player import FILTERS
 from .daemon import BackgroundPlayer, stop_service
 from .visualizer import Visualizer
+from .updater import start_check, read_status
 from dataclasses import asdict
 from .service import MusicService
 
@@ -29,11 +30,13 @@ class Musik(App):
     #tracks { height: 1fr; border: round #435674; }
     #lyrics { height: 1fr; border: round #435674; padding: 1; overflow-y: auto; }
     #now { height: 5; margin: 1 2; padding: 0 1; border: round #66d9bb; }
+    #update { height: 1; margin: 0 2; color: #8899aa; }
     #status { height: 2; margin: 0 2; color: #66d9bb; }
     .label { height: 2; color: #66d9bb; text-style: bold; }
     """
     BINDINGS = [
         ("slash", "search", "Search"), ("space", "pause", "Pause"),
+        Binding("ctrl+p", "pause", "Pause", priority=True),
         ("n", "next", "Next"), ("p", "previous", "Previous"),
         ("a", "enqueue", "Queue +"), ("f", "favorite", "Favorite"),
         ("1", "view('results')", "Results"), ("2", "view('queue')", "Queue"),
@@ -76,6 +79,7 @@ class Musik(App):
         yield Visualizer(id="visualizer", markup=False)
         yield Static("Nothing playing", id="now", markup=False)
         yield Static("Ready to browse", id="status", markup=False)
+        yield Static("", id="update", markup=False)
         yield Footer()
 
     async def on_mount(self):
@@ -188,12 +192,16 @@ class Musik(App):
     async def remote(self, operation, **arguments):
         try:
             self.state = await self.player.rpc(operation, **arguments)
+            if operation == "play":
+                self.view = "queue"
             self.refresh_tracks()
             self.status(self.player.message)
         except Exception as exc:
             self.status(str(exc))
 
     async def tick(self):
+        for widget in self.query("#update"):
+            widget.update(read_status(self.store).get("message", ""))
         if not list(self.query("#status")):
             return
         if self.background and self.ready:
@@ -381,6 +389,7 @@ def main():
             stopped = asyncio.run(stop_service(Store()))
             print("Musik stopped." if stopped else "Musik is not running.")
             return
+        start_check(Store())
         Musik(local=args.local).run()
     except (ValueError, OSError, RuntimeError) as exc:
         parser.exit(1, f"Musik: {exc}\n")

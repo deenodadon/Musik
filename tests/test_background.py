@@ -62,6 +62,12 @@ async def test_tui_detaches_daemon_advances_reconnects_and_cli_stops(tmp_path, m
         reopened = Musik()
         async with reopened.run_test(size=(110, 40)) as pilot:
             assert reopened.state.current.title == "second"
+            await pilot.press("ctrl+p")
+            await pilot.pause(.1)
+            assert (await request(store, "status"))["paused"] is True
+            await pilot.press("ctrl+p")
+            await pilot.pause(.1)
+            assert (await request(store, "status"))["paused"] is False
             await pilot.press("ctrl+up")
             assert reopened.state.volume == 75
             assert (await request(store, "status"))["state"]["volume"] == 75

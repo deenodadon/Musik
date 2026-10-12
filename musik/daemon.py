@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .core import State, Store, Track
 from .player import FILTERS, Player
+from .service import MusicService
 
 
 def runtime_directory(store):
@@ -67,10 +68,12 @@ class BackgroundPlayer:
             return
         except (FileNotFoundError, ConnectionRefusedError):
             pass
+        self.store.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         # All standard streams are detached and setsid disconnects the terminal.
         subprocess.Popen([sys.executable, "-m", "musik.daemon", str(self.store.directory)],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+                         stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
+                         cwd=self.store.directory)
         for _ in range(100):
             try:
                 await self.poll()
@@ -113,6 +116,9 @@ class Daemon:
         self.stopping = asyncio.Event()
         self.message = "Background player ready"
         self.tasks = set()
+        self.service = MusicService()
+        self.radio_task = None
+        self.radio_generation = 0
 
     def snapshot(self):
         p = self.player
@@ -129,6 +135,38 @@ class Daemon:
         except Exception as exc:
             self.message = f"Playback failed: {exc}"
 
+    def seed_radio(self, track):
+        self.radio_generation += 1
+        generation = self.radio_generation
+        if self.radio_task:
+            self.radio_task.cancel()
+        self.state.queue = [track]
+        self.state.index = 0
+        self.store.save(self.state)
+        self.radio_task = asyncio.create_task(self.fill_radio(track, generation))
+
+    async def fill_radio(self, track, generation):
+        try:
+            tracks = await asyncio.to_thread(self.service.radio, track)
+            async with self.lock:
+                if generation != self.radio_generation:
+                    return
+                seen = {(item.source, item.id) for item in self.state.queue}
+                for item in tracks:
+                    identity = (item.source, item.id)
+                    if identity not in seen:
+                        self.state.queue.append(item)
+                        seen.add(identity)
+                self.store.save(self.state)
+                self.message = f"Radio ready · {len(self.state.queue)} songs" if tracks else "No related songs found"
+                if self.player.idle and not self.player.paused and self.state.index == 0 and len(self.state.queue) > 1:
+                    await self.play(self.state.advance())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if generation == self.radio_generation:
+                self.message = f"Radio unavailable; selected song can still play: {exc}"
+
     async def dispatch(self, operation, args):
         if operation == "status":
             return
@@ -141,12 +179,11 @@ class Daemon:
                     index = int(args["index"])
                     if not 0 <= index < len(self.state.queue):
                         raise ValueError("Queue entry no longer exists")
+                    track = self.state.queue[index]
                 else:
-                    self.state.queue.append(Track(**args["track"]))
-                    index = len(self.state.queue) - 1
-                self.state.index = index
-                self.store.save(self.state)
-                await self.play(self.state.current)
+                    track = Track(**args["track"])
+                self.seed_radio(track)
+                await self.play(track)
             elif operation == "enqueue":
                 track = Track(**args["track"])
                 self.state.queue.append(track)
@@ -244,6 +281,9 @@ class Daemon:
                 if server:
                     server.close()
                     await server.wait_closed()
+                if self.radio_task:
+                    self.radio_task.cancel()
+                    await asyncio.gather(self.radio_task, return_exceptions=True)
                 if monitor:
                     monitor.cancel()
                     await asyncio.gather(monitor, return_exceptions=True)

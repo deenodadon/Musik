@@ -83,7 +83,8 @@ Only the background service writes shared state. Its private Unix control socket
 | Enter | Play selected track; add it to the queue if outside the queue |
 | `1` / `2` / `3` / `4` | Search results / queue / favorites / history |
 | `a` / `f` | Add to queue / toggle local favorite |
-| Space / `n` / `p` | Pause / next / previous |
+| Ctrl+P (anywhere) / Space (track list) | Pause or resume |
+| `n` / `p` | Next / previous |
 | Left / Right | Seek backward / forward 10 seconds |
 | Ctrl+Up / Ctrl+Down | Adjust volume in 5% steps, including while searching |
 | `+` or `=` / `-` | Alternative volume keys when the track list has focus |
@@ -97,7 +98,29 @@ State is saved atomically to `$XDG_STATE_HOME/musik/state.json` (default `~/.loc
 
 Public song search uses ytmusicapi; stream resolution uses yt-dlp; decoding and audio output use mpv. Network errors appear in the TUI. YouTube can restrict requests or require sign-in; authenticated account features and cookies are not implemented. Favorites/history belong to Musik, not your Google account. Lyrics display as text; `.lrc` timestamps are shown, not synchronized.
 
-This first version does not include albums/artists/playlist browsing, account library sync, radio, gapless lookahead, crossfade, downloads, scrobbling, Discord, MPRIS or shared listening. See [UPSTREAMS.md](UPSTREAMS.md) for source provenance and hosted fork status.
+This version does not include albums/artists/playlist browsing, account library sync, gapless lookahead, crossfade, downloads, scrobbling, Discord, MPRIS or shared listening. See [UPSTREAMS.md](UPSTREAMS.md) for source provenance and hosted fork status.
+
+## Automatic radio queues
+
+Press Enter on any song to replace the current queue with that song and its YouTube Music radio recommendations (up to 25 related songs, including similar artists). The queue view opens automatically. The selected song starts while recommendations load; failure to fetch recommendations does not prevent its playback. Each manual selection starts a new radio queue, including selecting a song already in the queue. Automatic next-track playback continues the current queue. Manually adding tracks with A keeps them alongside recommendations. Local songs queue other audio files in the same folder, since online recommendations require a YouTube song ID.
+
+## Automatic updates
+
+Each `musik` or `musik start` launch checks the official GitHub main branch in a detached background process. If it changed, Musik builds and installs the update into its own virtual environment. The TUI reports check/update status; startup and current playback continue. Updates appear on the next launch. An already-running playback service keeps its loaded code until stopped with `musik stop` or the computer restarts.
+
+The updater uses a temporary checkout and leaves your `~/Musik` files and local edits unchanged. It requires Git and access to GitHub and Python package servers. Failed/offline checks retry on the next launch. It does not run on `musik stop`, in editable development installs, or in a system Python installation. Set `MUSIK_AUTO_UPDATE=0` to disable it. The first check establishes the installed commit receipt and may reinstall the current release once.
+
+You need to install this version once to get the updater:
+
+```sh
+musik stop
+cd ~/Musik
+git pull origin main
+.venv/bin/python -m pip install .
+musik
+```
+
+After that, normal launches perform update checks automatically. Developer checkouts are not synchronized by the updater; use Git normally if editing the source yourself.
 
 ## Develop and test
 
