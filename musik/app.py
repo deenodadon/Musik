@@ -1,4 +1,5 @@
 import argparse
+from functools import partial
 import asyncio
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from .service import MusicService, cached_playlists, explain_library_error
 class BrowserTable(DataTable):
     """Activate a row on one click, as a music browser does."""
     async def _on_click(self, event):
+        event.prevent_default()
         previous = self.cursor_coordinate
         await super()._on_click(event)
         row = event.style.meta.get("row")
@@ -184,7 +186,7 @@ class Musik(App):
         if track is None:
             return
         if track.source in ("artist", "album", "playlist"):
-            self.run_worker(self.open_catalog(track), group="catalog", exclusive=True)
+            self.run_worker(partial(self.open_catalog, track), group="catalog", exclusive=True)
             return
         if self.background:
             args = {"index": event.cursor_row} if self.view == "queue" else {"track": asdict(track)}
