@@ -104,6 +104,36 @@ def logout(store=None):
         (store.directory / name).unlink(missing_ok=True)
 
 
+def windows_default_browser():
+    """Read the user's HTTPS association without changing it."""
+    import winreg
+    import re
+    import ntpath
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice") as key:
+            progid = winreg.QueryValueEx(key, "ProgId")[0]
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, progid + r"\shell\open\command") as key:
+            command = winreg.ExpandEnvironmentStrings(winreg.QueryValueEx(key, None)[0])
+    except OSError:
+        raise RuntimeError("Could not detect your Windows default browser. Choose one with musik login --browser edge/chrome/firefox/brave.") from None
+    match = re.match(r'^\s*(?:"([^"\n]+)"|(.+?\.exe)(?:\s|$))', command, re.IGNORECASE)
+    executable = (match.group(1) or match.group(2)) if match else ""
+    name = ntpath.basename(executable).lower()
+    browser = {"brave.exe": "brave", "msedge.exe": "edge", "firefox.exe": "firefox",
+               "chromium.exe": "chromium", "chrome.exe": "chrome"}.get(name)
+    if browser == "chrome" and "chromium" in progid.lower():
+        browser = "chromium"
+    if browser is None:
+        raise RuntimeError("Your default browser is not supported for session import. Use musik login --browser edge/chrome/firefox/brave with an installed browser.")
+    return browser, executable
+
+
+def default_browser():
+    import sys
+    return windows_default_browser()[0] if sys.platform == "win32" else "brave"
+
+
 def browser_executable(browser):
     import shutil
     names = {'firefox': ('firefox',), 'brave': ('brave-browser', 'brave-browser-stable', 'brave'),
@@ -112,6 +142,12 @@ def browser_executable(browser):
     found = next((path for name in names[browser] if (path := shutil.which(name))), None)
     if found or os.name != 'nt':
         return found
+    try:
+        default, executable = windows_default_browser()
+        if default == browser and Path(executable).is_file():
+            return executable
+    except RuntimeError:
+        pass
     relatives = {'brave': 'BraveSoftware/Brave-Browser/Application/brave.exe',
                  'chrome': 'Google/Chrome/Application/chrome.exe',
                  'chromium': 'Chromium/Application/chrome.exe',

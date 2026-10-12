@@ -611,7 +611,7 @@ def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
     parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
     parser.add_argument("--local", help="Browse a directory of local audio files")
-    parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default="brave", help="Browser engine for the dedicated login window (default: brave)")
+    parser.add_argument("--browser", choices=["firefox", "chrome", "chromium", "brave", "edge"], default=None, help="Sign-in browser (default: Windows default browser; Brave on Linux)")
     parser.add_argument("--profile", help="Optional browser profile path for musik login")
     parser.add_argument("--browser-session", action="store_true", help="Open your existing browser profile instead of an isolated login window")
     parser.add_argument("--import-only", action="store_true", help="Import an existing browser session without opening the browser or prompting")
@@ -619,9 +619,11 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "login":
-            from .auth import login, interactive_login, login_window
+            from .auth import login, interactive_login, login_window, default_browser
+            args.browser = args.browser or default_browser()
+            print(f"Using {args.browser} for sign-in.")
             print("This imports your YouTube session locally; no passwords or cookies are sent to GitHub.")
-            if args.import_only or args.browser_session or args.profile:
+            if args.import_only or args.browser_session or args.profile or args.browser == "firefox":
                 flow = login if args.import_only else interactive_login
                 count = flow(args.browser, args.profile, account=args.account)
             else:

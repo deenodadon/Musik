@@ -67,7 +67,7 @@ Search a title and open **Videos** to choose from YouTube uploads, covers, remix
 
 Exact artist-name searches use the artist’s own albums and songs, with at least 25 songs when available. Artist pages show top songs, an all-songs collection when available, and albums/singles. Select a song to start radio, or open an album and press `o` to play it in order.
 
-Sign-in uses Brave by default; Chrome, Chromium and Edge can be selected with `--browser`. It grants only access your Google account is eligible for. YouTube may restrict streaming even when signed in.
+Windows sign-in detects your default browser; the installer does not install a browser. Linux uses Brave by default. Override with `--browser chrome`, `edge`, `brave`, `chromium`, or `firefox`. Firefox uses its existing session. It grants only access your Google account is eligible for. YouTube may restrict streaming even when signed in.
 
 ## Uninstall Windows
 

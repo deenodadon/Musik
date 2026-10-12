@@ -72,5 +72,5 @@ with (store.directory / 'update.lock').open('a+') as handle:
 $userPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')
 [Environment]::SetEnvironmentVariable('Path', (Remove-MusikPath $userPath), 'User')
 $env:PATH = Remove-MusikPath $env:PATH
-Write-Host 'Musik uninstalled. Python, Git, mpv, Node.js, Brave and personal music were not removed.'
+Write-Host 'Musik uninstalled. Python, Git, mpv, Node.js and personal music were not removed.'
 if ($KeepData) { Write-Host 'Saved Musik data was kept.' }

@@ -23,3 +23,14 @@ def test_start_command_opens_terminal(monkeypatch, arguments):
     app.main()
     assert opened == (["/music"] if "--local" in arguments else [None])
     assert checks == [True]
+
+
+@pytest.mark.parametrize('browser,flow', [('edge', 'login_window'), ('firefox', 'interactive_login')])
+def test_login_uses_detected_default_browser(monkeypatch, browser, flow):
+    from musik import auth
+    calls = []
+    monkeypatch.setattr(auth, 'default_browser', lambda: browser)
+    monkeypatch.setattr(auth, flow, lambda selected, *args, **kwargs: calls.append(selected) or 2)
+    monkeypatch.setattr(sys, 'argv', ['musik', 'login'])
+    app.main()
+    assert calls == [browser]

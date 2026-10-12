@@ -174,3 +174,28 @@ def test_isolated_login_reports_missing_browser(monkeypatch):
     monkeypatch.setattr(shutil, 'which', lambda name: None)
     with pytest.raises(RuntimeError, match='not installed'):
         login_window()
+
+
+@pytest.mark.parametrize('progid,command,expected', [
+    ('ChromeHTML', '"C:\\Custom Chrome\\chrome.exe" -- "%1"', ('chrome', 'C:\\Custom Chrome\\chrome.exe')),
+    ('MSEdgeHTM', '"C:\\Edge\\msedge.exe" --single-argument %1', ('edge', 'C:\\Edge\\msedge.exe')),
+    ('FirefoxURL-123', '"C:\\Firefox\\firefox.exe" -osint -url "%1"', ('firefox', 'C:\\Firefox\\firefox.exe')),
+    ('BraveHTML', 'C:\\Browser\\brave.exe "%1"', ('brave', 'C:\\Browser\\brave.exe')),
+])
+def test_windows_default_browser_association(monkeypatch, progid, command, expected):
+    import sys
+    from types import SimpleNamespace
+    from musik.auth import windows_default_browser
+    class Key:
+        def __init__(self, path):
+            self.path = path
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+    registry = SimpleNamespace(HKEY_CURRENT_USER=1, HKEY_CLASSES_ROOT=2,
+        OpenKey=lambda root, path: Key(path),
+        QueryValueEx=lambda key, name: (progid if name == 'ProgId' else command, 1),
+        ExpandEnvironmentStrings=lambda value: value)
+    monkeypatch.setitem(sys.modules, 'winreg', registry)
+    assert windows_default_browser() == expected

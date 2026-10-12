@@ -1,6 +1,6 @@
 # Advanced options
 
-- Python 3.11+ and mpv are required. Online playback also needs Node.js 22+ or a supported Deno/Bun runtime. Google sign-in needs a Chromium-based browser; passwords are entered on Google's page.
+- Python 3.11+ and mpv are required. Online playback also needs Node.js 22+ or a supported Deno/Bun runtime. An isolated Google sign-in window needs a Chromium-based browser; Firefox uses its existing session. Windows detects the default browser without installing one; passwords are entered on Google's page.
 - `musik login --browser brave --browser-session` imports an existing browser profile. Add `--account 1` for its second Google account, or `--profile PATH` for a specific profile. Firefox supports existing-session imports only. `--import-only` skips the browser launch and prompt.
 - Imported cookies are private credentials. Unix stores data in `$XDG_STATE_HOME/musik` (default `~/.local/state/musik`); Windows uses `%LOCALAPPDATA%\musik` with inherited user-directory access controls. Do not share the cookie file. Reset does not sign out your ordinary browser.
 - Windows installs under `%LOCALAPPDATA%\Programs\Musik`. The installer supports `-SkipDependencies` and `-InstallDirectory PATH`; the uninstaller supports `-KeepData` and the same custom path.

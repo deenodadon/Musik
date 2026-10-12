@@ -13,7 +13,7 @@ if (-not $SkipDependencies) {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         throw 'Install App Installer (winget), or install Python 3.12+, Git, mpv and Node.js 22+ manually, then use -SkipDependencies.'
     }
-    foreach ($package in @('Python.Python.3.12', 'Git.Git', 'shinchiro.mpv', 'OpenJS.NodeJS.LTS', 'Brave.Brave')) {
+    foreach ($package in @('Python.Python.3.12', 'Git.Git', 'shinchiro.mpv', 'OpenJS.NodeJS.LTS')) {
         & winget install --exact --id $package --accept-source-agreements --accept-package-agreements --disable-interactivity
         # WinGet returns this code when a package is already current.
         if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
