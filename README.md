@@ -102,7 +102,7 @@ Queued songs prepare their stream links in the background to reduce loading when
 
 **Torrent audio:** Open **Torrents (F11)**, save your TorBox API key, and search. Musik includes standalone qBittorrent Nova search with Solid Torrents and TorrentsCSV; qBittorrent does not need to be installed or running. Enter opens a torrent's audio files in TorBox; Enter again streams a file directly to mpv, or **O** queues the collection. No audio files are saved locally. Uncached torrents must finish on TorBox first; select the result again to check progress. Search sites may be unavailable on your network.
 
-Click **Cached torrents** to return to any torrent you've opened, including ones still preparing. The list survives restarts, refreshes your TorBox library, and reopens the exact torrent by its ID. Lists are kept separate for each TorBox API key.
+Click **Cached torrents** to return to completed torrents containing audio files. Videos, archives, torrents without audio, and unfinished downloads are excluded. The list survives restarts, refreshes your TorBox library, and reopens the exact torrent by its ID. Lists are kept separate for each TorBox API key.
 
 You can also search `/torrent QUERY` or paste a magnet into Musik's search box. `musik torrents --connect-torbox` saves a key through a hidden prompt; `musik torrents --disconnect-torbox` removes it. Install additional trusted Nova plugins through F11 or `musik torrents --install-engine URL_OR_PATH`. Plugins run Python as your user. TorBox requires your own account/API key; magnet links and direct `.torrent` links are supported, while site-specific download pages may need a magnet link instead.
 

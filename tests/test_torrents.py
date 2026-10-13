@@ -137,10 +137,12 @@ def test_saved_torrents_survive_restart_and_reopen_by_id_without_reupload(tmp_pa
     torrent = Track(json.dumps({'url': MAGNET}), 'Exact album', source='torrent')
     with pytest.raises(RuntimeError, match='preparing'):
         client.files(torrent)
+    assert torrents.cached_torrents(Store(tmp_path)) == []
+    api.ready = True
+    client.library()
     saved = torrents.cached_torrents(Store(tmp_path))
     assert len(saved) == 1 and saved[0].title == 'Exact album'
     assert json.loads(saved[0].id)['torrent_id'] == 7
-    api.ready = True
     assert client.files(saved[0])[0].source == 'torbox'
     assert len([call for call in api.calls if call[1].endswith('/createtorrent')]) == 1
     assert 'secret' not in (store.directory/'torbox-library.json').read_text()
@@ -154,8 +156,30 @@ def test_concurrent_saved_torrents_do_not_overwrite_other_entries(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     store, client = torbox_fixture(tmp_path)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(lambda identity: client.remember(identity, f'Album {identity}'), range(20)))
+        list(pool.map(lambda identity: client.remember(identity, f'Album {identity}', ready_audio=True), range(20)))
     assert len(torrents.cached_torrents(store)) == 20
+
+
+def test_library_excludes_non_audio_unfinished_and_old_unfiltered_entries(tmp_path):
+    class MixedAPI(TorBoxAPI):
+        def request(self, method, url, **kwargs):
+            assert url.endswith('/mylist')
+            return Response({'success': True, 'data': [
+                {'id': 1, 'name': 'Album', 'download_finished': True, 'files': [{'name': 'song.FLAC'}, {'name': 'cover.jpg'}]},
+                {'id': 2, 'name': 'Movie', 'download_finished': True, 'files': [{'name': 'movie.mkv'}]},
+                {'id': 3, 'name': 'Archive', 'download_finished': True, 'files': [{'name': 'music.zip'}]},
+                {'id': 4, 'name': 'Pending', 'download_finished': False, 'files': [{'name': 'song.mp3'}]},
+                {'id': 5, 'name': 'Empty', 'download_finished': True, 'files': []},
+            ]})
+    store, client = torbox_fixture(tmp_path, MixedAPI())
+    torrents.write_private(store.directory/'torbox-library.json', {client.account: {
+        '2': {'title': 'Old movie', 'status': 'Cached · ready'},
+        '6': {'title': 'Removed torrent', 'ready_audio': True}}})
+    rows = client.library()
+    assert [track.title for track in rows] == ['Album']
+    assert json.loads(rows[0].id)['torrent_id'] == 1
+    assert [track.title for track in torrents.cached_torrents(Store(tmp_path))] == ['Album']
+    assert list(json.loads((store.directory/'torbox-library.json').read_text())[client.account]) == ['1']
 
 
 async def test_cached_torrents_tab_opens_remote_library_exact_item(tmp_path, monkeypatch):
@@ -164,7 +188,7 @@ async def test_cached_torrents_tab_opens_remote_library_exact_item(tmp_path, mon
     from test_app import FakePlayer, FakeService
     store, client = torbox_fixture(tmp_path)
     monkeypatch.setattr(torrents, 'TorBox', lambda store: client)
-    client.remember(7, 'Exact cached album', 'Cached · ready')
+    client.remember(7, 'Exact cached album', 'Cached · ready', ready_audio=True)
     app = Musik(store=store, service=FakeService(), player=FakePlayer())
     async with app.run_test(size=(160, 45)) as pilot:
         await pilot.click('#menu-cached')

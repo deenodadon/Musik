@@ -21,6 +21,11 @@ TORBOX_API = 'https://api.torbox.app/v1/api'
 AUDIO_EXTENSIONS = {'.flac', '.mp3', '.wav', '.m4a', '.aac', '.alac', '.ogg', '.opus', '.aiff', '.aif', '.ape', '.wma'}
 
 
+def audio_files(item):
+    return [file for file in item.get('files', [])
+            if Path(file.get('short_name') or file.get('name') or '').suffix.lower() in AUDIO_EXTENSIONS]
+
+
 def read_json(path, default):
     try:
         return json.loads(path.read_text(encoding='utf-8'))
@@ -58,10 +63,10 @@ def cached_torrents(store):
     data = read_json(store.directory / 'torbox-library.json', {})
     return [Track(json.dumps({'torrent_id': int(identity), 'account': account}), entry['title'],
                   entry.get('status', 'TorBox'), 'torrent')
-            for identity, entry in data.get(account, {}).items()]
+            for identity, entry in data.get(account, {}).items() if entry.get('ready_audio')]
 
 
-def update_library(store, account, entries):
+def update_library(store, account, entries, *, replace=False):
     path = store.directory / 'torbox-library.json'
     with (store.directory / 'torbox-library.lock').open('a+') as handle:
         deadline = time.monotonic() + 5
@@ -74,7 +79,10 @@ def update_library(store, account, entries):
                     raise RuntimeError('Saved torrent storage is busy') from None
                 time.sleep(.01)
         data = read_json(path, {})
-        data.setdefault(account, {}).update(entries)
+        if replace:
+            data[account] = entries
+        else:
+            data.setdefault(account, {}).update(entries)
         write_private(path, data)
 
 
@@ -178,8 +186,8 @@ class TorBox:
         self.session = session or requests.Session()
         self.account = hashlib.sha256(self.token.encode()).hexdigest()
 
-    def remember(self, identity, title, status='TorBox'):
-        update_library(self.store, self.account, {str(identity): {'title': title, 'status': status}})
+    def remember(self, identity, title, status='TorBox', *, ready_audio=False):
+        update_library(self.store, self.account, {str(identity): {'title': title, 'status': status, 'ready_audio': ready_audio}})
 
     def library(self):
         data, seen, offset = [], set(), 0
@@ -197,11 +205,12 @@ class TorBox:
         saved = read_json(path, {})
         entries = {}
         for item in data:
+            if not item.get('download_finished') or not audio_files(item):
+                continue
             identity = str(int(item['id']))
             title = item.get('name') or saved.get(self.account, {}).get(identity, {}).get('title') or f'Torrent {identity}'
-            status = 'Cached · ready' if item.get('download_finished') else f"Preparing · {float(item.get('progress') or 0)*100:.0f}%"
-            entries[identity] = {'title': title, 'status': status}
-        update_library(self.store, self.account, entries)
+            entries[identity] = {'title': title, 'status': 'Cached · ready', 'ready_audio': True}
+        update_library(self.store, self.account, entries, replace=True)
         return cached_torrents(self.store)
 
     def call(self, method, endpoint, **kwargs):
@@ -278,15 +287,14 @@ class TorBox:
         if not item or not item.get('download_finished'):
             progress = float((item or {}).get('progress') or 0) * 100
             raise RuntimeError(f'TorBox is preparing this torrent ({progress:.0f}%). Select it again shortly; no audio is downloaded locally.')
-        self.remember(torrent_id, item.get('name') or track.title, 'Cached · ready')
         rows = []
-        for file in item.get('files', []):
+        for file in audio_files(item):
             name = file.get('short_name') or file.get('name') or ''
-            if Path(name).suffix.lower() in AUDIO_EXTENSIONS:
-                payload = {'torrent_id': torrent_id, 'file_id': int(file['id']), 'account': self.account}
-                rows.append(Track(json.dumps(payload), Path(name).name, 'TorBox', 'torbox'))
+            payload = {'torrent_id': torrent_id, 'file_id': int(file['id']), 'account': self.account}
+            rows.append(Track(json.dumps(payload), Path(name).name, 'TorBox', 'torbox'))
         if not rows:
             raise RuntimeError('This torrent contains no supported audio files')
+        self.remember(torrent_id, item.get('name') or track.title, 'Cached · ready', ready_audio=True)
         return rows
 
     def stream(self, track):

@@ -569,7 +569,7 @@ class Musik(App):
                 self.cached = await asyncio.to_thread(lambda: TorBox(self.store).library())
                 if self.view == 'cached':
                     self.refresh_tracks()
-                    self.status('Enter opens audio files · Preparing torrents stay listed here')
+                    self.status('Cached audio torrents only · Enter opens audio files')
             except Exception as error:
                 if self.view == 'cached':
                     self.status(str(error))
