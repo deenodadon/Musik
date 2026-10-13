@@ -138,13 +138,23 @@ def download_file(url: str, referer: Optional[str] = None, ssl_context: Optional
 
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), urllib.request.HTTPSHandler(context=ssl_context))
     with opener.open(request) as response:
-        data = response.read()
+        # Musik adaptation: this function fetches torrent metadata only.
+        if response.headers.get('Content-Type', '').lower().startswith('audio/'):
+            raise ValueError('Expected torrent metadata, not audio')
+        data = response.read(2_000_001)
+        if len(data) > 2_000_000:
+            raise ValueError('Torrent metadata exceeds 2 MB')
 
     # Check if it is gzipped
     if data[:2] == b'\x1f\x8b':
         # Data is gzip encoded, decode it
         with io.BytesIO(data) as compressedStream, gzip.GzipFile(fileobj=compressedStream) as gzipper:
-            data = gzipper.read()
+            data = gzipper.read(2_000_001)
+            if len(data) > 2_000_000:
+                raise ValueError('Decoded torrent metadata exceeds 2 MB')
+
+    if not data.startswith(b'd'):
+        raise ValueError('Expected bencoded torrent metadata')
 
     # Write it to a file
     fileHandle, path = tempfile.mkstemp()

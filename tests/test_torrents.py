@@ -42,6 +42,145 @@ def test_standalone_nova_search_without_qbittorrent(tmp_path):
     assert json.loads(rows[0].id)['seeds'] == 12
 
 
+def test_nova_search_excludes_zero_unknown_seeds_and_archive_releases(tmp_path):
+    store = search_fixture(tmp_path)
+    plugin = store.directory/'nova/engines/fixture.py'
+    cases = [('Dead FLAC', 0), ('Unknown FLAC', -1), ('Album.zip', 20), ('Album [RAR]', 30), ('Album.7z', 10), ('Good MP3', 3)]
+    source = plugin.read_text()
+    for index, (title, seeds) in enumerate(cases, start=1):
+        row = {'link': 'magnet:?xt=urn:btih:' + f'{index:040x}', 'name': title,
+               'size': '10 MB', 'seeds': seeds, 'leech': 0, 'engine_url': 'https://example.org'}
+        source += f'        prettyPrinter({row!r})\n'
+    plugin.write_text(source)
+    rows = torrents.search_torrents('Artist album', store)
+    assert [row.title for row in rows] == ['Album | FLAC', 'Good MP3']
+    assert all(json.loads(row.id)['seeds'] > 0 for row in rows)
+
+
+def test_music_category_is_used_when_engine_supports_it(tmp_path):
+    store = search_fixture(tmp_path)
+    plugin = store.directory/'nova/engines/fixture.py'
+    source = plugin.read_text().replace("supported_categories = {'all': ''}", "supported_categories = {'all': '', 'music': 'audio'}")
+    source = source.replace("assert query == 'Artist%20album'", "assert query == 'Artist%20album'\n        assert category == 'music'")
+    plugin.write_text(source)
+    assert len(torrents.search_torrents('Artist album', store)) == 1
+
+
+@pytest.mark.parametrize('as_object', [False, True])
+def test_search_checks_actual_cached_files_for_mislabelled_archives(tmp_path, monkeypatch, as_object):
+    store = search_fixture(tmp_path)
+    torrents.configure(store, token='secret')
+    class CachedAPI:
+        def request(self, method, url, **kwargs):
+            assert url.endswith('/torrents/checkcached')
+            assert method == 'GET'
+            assert kwargs['params']['hash'] == 'a'*40
+            assert kwargs['params']['list_files'] == 'true'
+            entry = {'hash': 'a'*40, 'files': [{'name': 'Album.zip'}]}
+            data = {'a'*40: entry} if as_object else [entry]
+            return Response({'success': True, 'data': data})
+    monkeypatch.setattr(torrents.requests, 'Session', CachedAPI)
+    assert torrents.search_torrents('Artist album', store) == []
+
+
+def test_cached_audio_is_retained_and_hash_encoding_is_normalized(tmp_path):
+    import base64
+    encoded = base64.b32encode(bytes.fromhex('a'*40)).decode()
+    assert torrents.torrent_hash('magnet:?xt=urn:btih:'+encoded) == 'a'*40
+    class CachedAPI:
+        def request(self, *args, **kwargs):
+            return Response({'success': True, 'data': [{'hash': 'a'*40, 'files': ['Song.flac', 'cover.jpg']}]})
+    store, client = torbox_fixture(tmp_path, CachedAPI())
+    row = Track(json.dumps({'url': MAGNET, 'seeds': 2}), 'Album', source='torrent')
+    assert client.filter_audio_results([row]) == [row]
+
+
+def test_uncached_results_need_verified_audio_metadata(tmp_path):
+    class MetadataAPI:
+        def request(self, method, url, **kwargs):
+            if url.endswith('/checkcached'):
+                data = []
+            else:
+                assert url.endswith('/torrentinfo') and method == 'GET'
+                identity = kwargs['params']['hash']
+                names = {'a': 'Song.flac', 'b': 'Album.zip', 'c': 'TV.Show.mkv', 'd': 'Movie.mp4'}
+                data = {'files': [{'name': names[identity[0]]}]}
+            return Response({'success': True, 'data': data})
+    _, client = torbox_fixture(tmp_path, MetadataAPI())
+    rows = [Track(json.dumps({'url': 'magnet:?xt=urn:btih:'+letter*40, 'seeds': 4}), 'FLAC Album', source='torrent') for letter in ('a', 'b', 'c', 'd')]
+    assert client.filter_audio_results(rows) == rows[:1]
+
+
+def test_engine_download_page_is_resolved_to_magnet_before_audio_check(tmp_path):
+    store = search_fixture(tmp_path)
+    torrents.configure(store, token='secret')
+    plugin = store.directory/'nova/engines/fixture.py'
+    plugin.write_text(plugin.read_text() + f'    def download_torrent(self, url):\n        print({MAGNET!r} + " " + url)\n')
+    row = Track(json.dumps({'url': 'https://example.org/info.html', 'engine': 'fixture', 'seeds': 2}), 'Album', source='torrent')
+    resolved, identity, verified = torrents.resolve_search_link(row, store)
+    assert identity == 'a'*40 and not verified
+    assert json.loads(resolved.id)['url'] == MAGNET
+
+
+def test_torrent_metadata_checks_real_files_and_preserves_info_hash():
+    import hashlib
+    def encode(value):
+        if isinstance(value, bytes):
+            return str(len(value)).encode()+b':'+value
+        if isinstance(value, int):
+            return b'i'+str(value).encode()+b'e'
+        if isinstance(value, list):
+            return b'l'+b''.join(encode(item) for item in value)+b'e'
+        return b'd'+b''.join(encode(key)+encode(value[key]) for key in sorted(value))+b'e'
+    for name, expected in [(b'Song.flac', True), (b'Album.zip', False), (b'Movie.mkv', False)]:
+        info = encode({b'name': name, b'length': 100})
+        identity, metadata = torrents.torrent_metadata(b'd4:info'+info+b'e')
+        assert identity == hashlib.sha1(info).hexdigest()
+        assert bool(torrents.audio_files(metadata)) == expected
+    with pytest.raises(ValueError):
+        torrents.torrent_metadata(b'<html>not a torrent</html>')
+
+
+def test_nova_metadata_download_rejects_audio_archives_and_oversized_responses(tmp_path):
+    import gzip
+    import http.server
+    import subprocess
+    import sys
+    import threading
+    store = search_fixture(tmp_path)
+    valid = b'd4:infod4:name9:song.flac6:lengthi100eee'
+    bodies = {'torrent': valid, 'zip': b'PKarchive', 'audio': b'audio bytes',
+              'large': b'd'+b'x'*2_000_000, 'gzip-large': gzip.compress(b'd'+b'x'*2_000_000)}
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            name = self.path.lstrip('/')
+            self.send_response(200)
+            self.send_header('Content-Type', 'audio/flac' if name == 'audio' else 'application/x-bittorrent')
+            self.end_headers()
+            self.wfile.write(bodies[name])
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    download = tmp_path/'metadata'
+    download.mkdir()
+    runner = Path(torrents.__file__).with_name('nova_runner.py')
+    try:
+        for name in bodies:
+            result = subprocess.run([sys.executable, '-I', str(runner), str(torrents.nova_root(store)), 'fixture',
+                                     f'http://127.0.0.1:{server.server_port}/{name}', 'link'],
+                                    env=dict(os.environ, TMPDIR=str(download), TEMP=str(download), TMP=str(download)),
+                                    capture_output=True, timeout=5)
+            assert (result.returncode == 0) == (name == 'torrent')
+        files = list(download.iterdir())
+        assert len(files) == 1 and files[0].read_bytes() == valid
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
 def test_search_timeout_keeps_partial_results(tmp_path):
     store = search_fixture(tmp_path)
     plugin = store.directory / 'nova/engines/fixture.py'

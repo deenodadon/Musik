@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, parse_qs, urlencode
 
 import requests
 from .core import Store, Track
@@ -22,8 +22,127 @@ AUDIO_EXTENSIONS = {'.flac', '.mp3', '.wav', '.m4a', '.aac', '.alac', '.ogg', '.
 
 
 def audio_files(item):
-    return [file for file in item.get('files', [])
+    files = [file if isinstance(file, dict) else {'name': file} for file in (item.get('files') or []) if isinstance(file, (dict, str))]
+    return [file for file in files
             if Path(file.get('short_name') or file.get('name') or '').suffix.lower() in AUDIO_EXTENSIONS]
+
+
+def archive_release(title):
+    return bool(re.search(r'(?i)\b(?:zip|rar|7z|tgz|gzip|tar\.gz)\b|\.r\d{2}\b', title))
+
+
+def torrent_hash(url):
+    import base64
+    for value in parse_qs(urlparse(url).query).get('xt', []):
+        if value.lower().startswith('urn:btih:'):
+            value = value[9:]
+            if re.fullmatch(r'[0-9a-fA-F]{40}', value):
+                return value.lower()
+            if re.fullmatch(r'[A-Za-z2-7]{32}', value):
+                return base64.b32decode(value.upper()).hex()
+    return None
+
+
+def torrent_metadata(content):
+    """Read bounded bencoded metadata; hash the original encoded info section."""
+    if len(content) > 2_000_000:
+        raise ValueError('Torrent metadata is too large')
+    info_span = None
+    def parse(position, depth=0):
+        nonlocal info_span
+        if depth > 100 or position >= len(content):
+            raise ValueError('Invalid torrent metadata')
+        token = content[position:position+1]
+        if token in (b'd', b'l'):
+            value = {} if token == b'd' else []
+            position += 1
+            while position < len(content) and content[position:position+1] != b'e':
+                if token == b'd':
+                    key, position = parse(position, depth+1)
+                    if not isinstance(key, bytes):
+                        raise ValueError('Invalid torrent key')
+                    start = position
+                    item, position = parse(position, depth+1)
+                    value[key] = item
+                    if depth == 0 and key == b'info':
+                        info_span = content[start:position]
+                else:
+                    item, position = parse(position, depth+1)
+                    value.append(item)
+            if position >= len(content):
+                raise ValueError('Invalid torrent metadata')
+            return value, position+1
+        if token == b'i':
+            end = content.index(b'e', position)
+            return int(content[position+1:end]), end+1
+        colon = content.index(b':', position)
+        length = int(content[position:colon])
+        end = colon+1+length
+        if length < 0 or end > len(content):
+            raise ValueError('Invalid torrent string')
+        return content[colon+1:end], end
+    data, end = parse(0)
+    if end != len(content) or not isinstance(data, dict) or not info_span or not isinstance(data.get(b'info'), dict):
+        raise ValueError('Invalid torrent metadata')
+    info = data[b'info']
+    names = []
+    if b'files' in info:
+        for file in info[b'files']:
+            path = file.get(b'path.utf-8') or file.get(b'path') or []
+            if path and isinstance(path[-1], bytes):
+                names.append({'name': path[-1].decode('utf-8', errors='replace')})
+    else:
+        name = info.get(b'name.utf-8') or info.get(b'name')
+        if isinstance(name, bytes):
+            names.append({'name': name.decode('utf-8', errors='replace')})
+    trackers = []
+    values = [data.get(b'announce')]
+    for tier in data.get(b'announce-list', []):
+        values.extend(tier if isinstance(tier, list) else [tier])
+    for value in values:
+        if isinstance(value, bytes):
+            tracker = value.decode('utf-8', errors='replace')
+            if tracker not in trackers:
+                trackers.append(tracker)
+    return hashlib.sha1(info_span).hexdigest(), {'files': names, 'trackers': trackers}
+
+
+def resolve_search_link(row, store):
+    payload = json.loads(row.id)
+    identity = torrent_hash(payload['url'])
+    if identity:
+        return row, identity, False
+    engine = payload.get('engine')
+    if not engine or engine not in engine_names(store):
+        return None, None, False
+    try:
+        with tempfile.TemporaryDirectory(prefix='musik-nova-metadata-') as folder:
+            runner = Path(__file__).with_name('nova_runner.py')
+            env = dict(os.environ, TMPDIR=folder, TEMP=folder, TMP=folder)
+            options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
+            result = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(runner), str(nova_root(store)), engine, payload['url'], 'link'],
+                                    capture_output=True, env=env, timeout=25, **options)
+            if result.returncode:
+                return None, None, False
+            lines = result.stdout.decode('utf-8', errors='replace').strip().splitlines()
+            if not lines:
+                return None, None, False
+            output = lines[-1]
+            if output.startswith('magnet:'):
+                payload['url'] = output.split(' ', 1)[0]
+                identity = torrent_hash(payload['url'])
+                return Track(json.dumps(payload), row.title, row.artist, row.source), identity, False
+            path = Path(output.rsplit(' ', 1)[0]).resolve()
+            if not path.is_relative_to(Path(folder).resolve()) or path.stat().st_size > 2_000_000:
+                return None, None, False
+            identity, metadata = torrent_metadata(path.read_bytes())
+            if not audio_files(metadata):
+                return None, None, False
+            parameters = [('xt', 'urn:btih:'+identity), ('dn', row.title)] + [('tr', value) for value in metadata['trackers']]
+            payload['url'] = 'magnet:?' + urlencode(parameters)
+            return Track(json.dumps(payload), row.title, row.artist, row.source), identity, True
+    except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired):
+        return None, None, False
 
 
 def read_json(path, default):
@@ -155,7 +274,7 @@ def search_torrents(query, store, *, timeout=30):
             return (error.stdout or b'').decode('utf-8', errors='replace'), False
     rows, seen, succeeded = [], set(), False
     with ThreadPoolExecutor(max_workers=3) as pool:
-        for output, success in pool.map(search, engines):
+        for engine, (output, success) in zip(engines, pool.map(search, engines)):
             succeeded |= success
             for line in output.splitlines():
                 fields = line.split('|')
@@ -168,12 +287,17 @@ def search_torrents(query, store, *, timeout=30):
                     size, seeds = int(size), int(seeds)
                 except ValueError:
                     continue
+                title = unquote(title)
+                if seeds <= 0 or archive_release(title):
+                    continue
                 seen.add(url)
-                payload = {'url': url, 'size': size, 'seeds': seeds, 'provider': provider}
+                payload = {'url': url, 'size': size, 'seeds': seeds, 'provider': provider, 'engine': engine}
                 detail = f'{seeds} seeds · {size / 1024**2:.0f} MiB' if size >= 0 else f'{seeds} seeds'
-                rows.append(Track(json.dumps(payload), unquote(title), detail, 'torrent'))
+                rows.append(Track(json.dumps(payload), title, detail, 'torrent'))
     if not rows and not succeeded:
         raise RuntimeError('Torrent search engines failed or timed out. Try another engine in F11.')
+    if rows and settings(store).get('torbox_token'):
+        rows = TorBox(store).filter_audio_results(rows)
     return sorted(rows, key=lambda track: json.loads(track.id)['seeds'], reverse=True)
 
 
@@ -185,6 +309,36 @@ class TorBox:
             raise RuntimeError('Connect TorBox in Torrents (F11) first')
         self.session = session or requests.Session()
         self.account = hashlib.sha256(self.token.encode()).hexdigest()
+
+    def filter_audio_results(self, rows):
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            resolved = list(pool.map(lambda row: resolve_search_link(row, self.store), rows))
+        hashes = list(dict.fromkeys(identity for row, identity, verified in resolved if row and identity))
+        accepted = {identity for row, identity, verified in resolved if row and verified}
+        checked = set(accepted)
+        for start in range(0, len(hashes), 100):
+            data = self.call('GET', 'torrents/checkcached', params={
+                'hash': ','.join(hashes[start:start+100]), 'list_files': 'true', 'format': 'list'}) or []
+            entries = data.items() if isinstance(data, dict) else [(entry.get('hash', ''), entry) for entry in data if isinstance(entry, dict)]
+            for identity, entry in entries:
+                if isinstance(entry, dict) and entry.get('files'):
+                    identity = str(entry.get('hash') or identity).lower()
+                    checked.add(identity)
+                    if audio_files(entry):
+                        accepted.add(identity)
+                    else:
+                        accepted.discard(identity)
+        def inspect(identity):
+            try:
+                item = self.call('GET', 'torrents/torrentinfo', params={'hash': identity, 'timeout': 5})
+                return identity if isinstance(item, dict) and audio_files(item) else None
+            except RuntimeError:
+                # Unknown contents are excluded rather than advertising a
+                # potentially unplayable archive as an audio release.
+                return None
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            accepted.update(identity for identity in pool.map(inspect, [value for value in hashes if value not in checked]) if identity)
+        return [row for row, identity, verified in resolved if row and identity in accepted]
 
     def remember(self, identity, title, status='TorBox', *, ready_audio=False):
         update_library(self.store, self.account, {str(identity): {'title': title, 'status': status, 'ready_audio': ready_audio}})

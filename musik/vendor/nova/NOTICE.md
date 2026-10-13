@@ -13,5 +13,8 @@ its upstream license and copyright notices. See the headers of the distributed
 source files for their complete terms. Musik does not claim authorship of these
 files or endorsement by qBittorrent or the plugin authors.
 
+Musik adapts `helpers.download_file` to reject audio responses and non-torrent
+content and limit both compressed and decoded metadata reads to 2 MB.
+
 Musik runs search plugins through its own subprocess adapter. No qBittorrent
 GUI, Web UI, torrent client, or local BitTorrent downloader is required.
