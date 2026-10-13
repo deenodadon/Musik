@@ -163,6 +163,7 @@ async def test_torrents_menu_saves_hidden_key_searches_and_opens_audio(tmp_path,
     from test_app import FakePlayer, FakeService
     store, client = torbox_fixture(tmp_path)
     monkeypatch.setattr(torrents, 'TorBox', lambda store: client)
+    monkeypatch.setattr('musik.torrent_screen.TorBox', lambda store: client)
     app = Musik(store=store, service=FakeService(), player=FakePlayer())
     async with app.run_test(size=(120, 50)) as pilot:
         await pilot.press('f11')
