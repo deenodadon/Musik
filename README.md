@@ -102,7 +102,7 @@ Queued songs prepare their stream links in the background to reduce loading when
 
 **Torrent audio:** Musik and its maintainers do not host or distribute torrent content and accept no responsibility for users’ use of it. Users are responsible for what they access and for complying with applicable laws, permissions, and service terms.
 
-Open **Torrents (F11)**, choose engines, save your own **TorBox API key**, and search. Solid Torrents, TorrentsCSV, and RockBox are included; qBittorrent is not required. Press **Enter** to open a torrent, then **Enter** to stream a track or **O** to queue the collection. TorBox must finish caching first; no audio files are saved locally.
+Open **Torrents (F11)**, choose engines, save your own **TorBox API key**, and search. Solid Torrents, TorrentsCSV, and RockBox are included; qBittorrent is not required. Press **Enter** to open a torrent, then **Enter** to stream a track or **O** to queue the collection. **Backspace** from the playback queue returns to the same track list. Previously generated file links are reused until their expiry (up to 24 hours when no expiry is supplied). TorBox must finish caching first; no audio files are saved locally.
 
 - **Filter results:** Type `flac`, `lossless`, or `24bit` below the list. This matches release labels, not verified quality.
 - **Cached torrents:** Reopen completed audio collections, including supported ZIPs. ZIP streaming needs server byte-range support and mpv archive support; encrypted ZIPs are unsupported and seeking may be slower.

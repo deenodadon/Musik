@@ -460,6 +460,7 @@ class Musik(App):
         if not self.playlist_contents:
             self.status("Open an album or playlist with Enter first")
             return
+        self.remember_page()
         if self.background:
             await self.remote("playlist", tracks=[asdict(t) for t in self.playlist_contents])
             self.action_view("queue")
@@ -492,6 +493,8 @@ class Musik(App):
         try:
             self.state = await self.player.rpc(operation, **arguments)
             if operation == "play":
+                if self.view != "queue":
+                    self.remember_page()
                 self.view = "queue"
             self.refresh_tracks()
             self.status(self.player.message)

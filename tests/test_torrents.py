@@ -661,3 +661,59 @@ def test_expired_signed_url_is_not_reused(tmp_path):
     client.download_url(7, 0)
     client.download_url(7, 0)
     assert len(api.calls) == 2
+
+
+
+def test_previous_archive_link_is_reused_beyond_three_minutes(tmp_path, monkeypatch):
+    import time
+    now = time.time()
+    api = TorBoxAPI(stream_url='https://cdn.example/archive.zip?expire='+str(now+7200))
+    store, client = torbox_fixture(tmp_path, api)
+    first = client.download_url(7, 0)
+    monkeypatch.setattr(torrents.time, 'time', lambda: now+3600)
+    assert torrents.TorBox(store, api).download_url(7, 0) == first
+    assert len(api.calls) == 1
+    monkeypatch.setattr(torrents.time, 'time', lambda: now+7300)
+    torrents.TorBox(store, api).download_url(7, 0)
+    assert len(api.calls) == 2
+
+
+async def test_backspace_from_queue_restores_zip_tracks_without_reopening(tmp_path):
+    from musik.app import Musik
+    from test_app import FakePlayer, FakeService
+    from textual.widgets import DataTable
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=FakePlayer())
+    rows = [Track(json.dumps({'torrent_id': 7, 'file_id': 0, 'zip_entry': title}), title, 'TorBox · ZIP', 'torbox')
+            for title in ('01. Pain.flac', '03. Fallen Angel.flac')]
+    calls = []
+    async def rpc(operation, **arguments):
+        calls.append(arguments['track']['title'])
+        return State(queue=[Track(**arguments['track'])], index=0)
+    app.player.rpc = rpc
+    app.player.message = 'Playing'
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.action_view('cached')
+        app.remember_page()
+        app.results = rows.copy()
+        app.playlist_contents = rows.copy()
+        app.catalog_title = 'Original ZIP'
+        app.choose_section()
+        app.action_view('results')
+        app.query_one('#tracks', DataTable).move_cursor(row=0)
+        from dataclasses import asdict
+        await app.remote('play', track=asdict(rows[0]))
+        assert app.view == 'queue'
+        await pilot.press('backspace')
+        assert app.view == 'results'
+        assert app.tracks == rows
+        assert app.catalog_title == 'Original ZIP'
+        assert app.playlist_contents == rows
+        assert len(app.browse_history) == 1
+        app.query_one('#tracks', DataTable).move_cursor(row=1)
+        await app.remote('play', track=asdict(app.selected()))
+        await pilot.press('backspace')
+        assert app.tracks == rows
+        assert app.query_one('#tracks', DataTable).cursor_row == 1
+        assert calls == ['01. Pain.flac', '03. Fallen Angel.flac']
+        await pilot.press('backspace')
+        assert app.view == 'cached'

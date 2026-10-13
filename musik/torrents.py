@@ -553,13 +553,16 @@ class TorBox:
             'zip_link': 'false', 'torrent_file': 'false', 'redirect': 'false'})
         if not isinstance(url, str) or urlparse(url).scheme not in ('http', 'https'):
             raise RuntimeError('TorBox did not return a playable audio URL')
-        expires = time.time() + 180
+        expirations = []
         query = parse_qs(urlparse(url).query)
         for name in ('expire', 'expires', 'Expires'):
             try:
-                if name in query: expires = min(expires, float(query[name][0])-30)
+                if name in query:
+                    expiry = float(query[name][0])
+                    if 0 < expiry < float('inf'): expirations.append(expiry-30)
             except (ValueError, TypeError):
                 pass
+        expires = min(expirations) if expirations else time.time()+24*60*60
         # Private metadata only; media bytes are never written here.
         with (self.store.directory / 'torbox-links.lock').open('a+') as handle:
             deadline = time.monotonic()+5
