@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import unquote, urlparse, parse_qs, urlencode
+from urllib.parse import unquote, urlparse, parse_qs, urlencode, quote
 
 import requests
 from .core import Store, Track
@@ -42,8 +42,17 @@ def audio_files(item):
             if Path(file.get('short_name') or file.get('name') or '').suffix.lower() in AUDIO_EXTENSIONS]
 
 
+def zip_files(item):
+    files = [file if isinstance(file, dict) else {'name': file} for file in (item.get('files') or []) if isinstance(file, (dict, str))]
+    return [file for file in files if Path(file.get('short_name') or file.get('name') or '').suffix.lower() == '.zip']
+
+
+def playable_contents(item):
+    return bool(audio_files(item) or zip_files(item))
+
+
 def archive_release(title):
-    return bool(re.search(r'(?i)\b(?:zip|rar|7z|tgz|gzip|tar\.gz)\b|\.r\d{2}\b', title))
+    return bool(re.search(r'(?i)\b(?:rar|7z|tgz|gzip|tar\.gz)\b|\.r\d{2}\b', title))
 
 
 def torrent_hash(url):
@@ -151,7 +160,7 @@ def resolve_search_link(row, store, *, timeout=25):
             if not path.is_relative_to(Path(folder).resolve()) or path.stat().st_size > 2_000_000:
                 return None, None, False
             identity, metadata = torrent_metadata(path.read_bytes())
-            if not audio_files(metadata):
+            if not playable_contents(metadata):
                 return None, None, False
             parameters = [('xt', 'urn:btih:'+identity), ('dn', row.title)] + [('tr', value) for value in metadata['trackers']]
             payload['url'] = 'magnet:?' + urlencode(parameters)
@@ -353,14 +362,14 @@ class TorBox:
                 if isinstance(entry, dict) and entry.get('files'):
                     identity = str(entry.get('hash') or identity).lower()
                     checked.add(identity)
-                    if audio_files(entry):
+                    if playable_contents(entry):
                         accepted.add(identity)
                     else:
                         accepted.discard(identity)
         def inspect(identity):
             try:
                 item = self.call('GET', 'torrents/torrentinfo', timeout=min(6, max(.1, deadline-time.monotonic())), params={'hash': identity, 'timeout': 5})
-                return identity if isinstance(item, dict) and audio_files(item) else None
+                return identity if isinstance(item, dict) and playable_contents(item) else None
             except RuntimeError:
                 # Unknown contents are excluded rather than advertising a
                 # potentially unplayable archive as an audio release.
@@ -388,8 +397,13 @@ class TorBox:
         saved = read_json(path, {})
         entries = {}
         for item in data:
-            if not item.get('download_finished') or not audio_files(item):
+            if not item.get('download_finished') or not playable_contents(item):
                 continue
+            if not audio_files(item):
+                try:
+                    if not self.audio_rows(item, int(item['id'])): continue
+                except RuntimeError:
+                    continue
             identity = str(int(item['id']))
             title = item.get('name') or saved.get(self.account, {}).get(identity, {}).get('title') or f'Torrent {identity}'
             entries[identity] = {'title': title, 'status': 'Cached · ready', 'ready_audio': True}
@@ -470,25 +484,52 @@ class TorBox:
         if not item or not item.get('download_finished'):
             progress = float((item or {}).get('progress') or 0) * 100
             raise RuntimeError(f'TorBox is preparing this torrent ({progress:.0f}%). Select it again shortly; no audio is downloaded locally.')
-        rows = []
-        for file in audio_files(item):
-            name = file.get('short_name') or file.get('name') or ''
-            payload = {'torrent_id': torrent_id, 'file_id': int(file['id']), 'account': self.account}
-            rows.append(Track(json.dumps(payload), Path(name).name, 'TorBox', 'torbox'))
+        rows = self.audio_rows(item, torrent_id)
         if not rows:
             raise RuntimeError('This torrent contains no supported audio files')
         self.remember(torrent_id, item.get('name') or track.title, 'Cached · ready', ready_audio=True)
         return rows
 
+    def audio_rows(self, item, torrent_id):
+        rows = []
+        for file in audio_files(item):
+            name = file.get('short_name') or file.get('name') or ''
+            payload = {'torrent_id': torrent_id, 'file_id': int(file['id']), 'account': self.account}
+            rows.append(Track(json.dumps(payload), Path(name).name, 'TorBox', 'torbox'))
+        from .remote_zip import audio_entries
+        archive_errors = []
+        for file in zip_files(item):
+            if 'id' not in file: continue
+            try:
+                url = self.download_url(torrent_id, int(file['id']))
+                entries = audio_entries(url, AUDIO_EXTENSIONS)
+                for entry in entries:
+                    payload = {'torrent_id': torrent_id, 'file_id': int(file['id']), 'account': self.account, 'zip_entry': entry}
+                    rows.append(Track(json.dumps(payload), Path(entry).name, 'TorBox · ZIP', 'torbox'))
+            except RuntimeError as error:
+                archive_errors.append(error)
+        if not rows and archive_errors:
+            raise archive_errors[0]
+        return rows
+
+    def download_url(self, torrent_id, file_id):
+        url = self.call('GET', 'torrents/requestdl', params={
+            'token': self.token, 'torrent_id': torrent_id, 'file_id': file_id,
+            'zip_link': 'false', 'torrent_file': 'false', 'redirect': 'false'})
+        if not isinstance(url, str) or urlparse(url).scheme not in ('http', 'https'):
+            raise RuntimeError('TorBox did not return a playable audio URL')
+        return url
+
     def stream(self, track):
         payload = json.loads(track.id)
         if payload.get('account') and payload['account'] != self.account:
             raise RuntimeError('This audio belongs to another TorBox account')
-        url = self.call('GET', 'torrents/requestdl', params={
-            'token': self.token, 'torrent_id': int(payload['torrent_id']), 'file_id': int(payload['file_id']),
-            'zip_link': 'false', 'torrent_file': 'false', 'redirect': 'false'})
-        if not isinstance(url, str) or urlparse(url).scheme not in ('http', 'https'):
-            raise RuntimeError('TorBox did not return a playable audio URL')
+        url = self.download_url(int(payload['torrent_id']), int(payload['file_id']))
+        if 'zip_entry' in payload:
+            entry = payload['zip_entry']
+            if not isinstance(entry, str) or not entry or entry.startswith('/') or '..' in entry.split('/'):
+                raise RuntimeError('Invalid ZIP audio entry')
+            url = 'archive://' + quote(url, safe='') + '|' + entry
         return {'url': url}
 
 

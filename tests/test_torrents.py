@@ -53,7 +53,7 @@ def test_nova_search_excludes_zero_unknown_seeds_and_archive_releases(tmp_path):
         source += f'        prettyPrinter({row!r})\n'
     plugin.write_text(source)
     rows = torrents.search_torrents('Artist album', store)
-    assert [row.title for row in rows] == ['Album | FLAC', 'Good MP3']
+    assert [row.title for row in rows] == ['Album.zip', 'Album | FLAC', 'Good MP3']
     assert all(json.loads(row.id)['seeds'] > 0 for row in rows)
 
 
@@ -76,7 +76,7 @@ def test_search_checks_actual_cached_files_for_mislabelled_archives(tmp_path, mo
             assert method == 'GET'
             assert kwargs['params']['hash'] == 'a'*40
             assert kwargs['params']['list_files'] == 'true'
-            entry = {'hash': 'a'*40, 'files': [{'name': 'Album.zip'}]}
+            entry = {'hash': 'a'*40, 'files': [{'name': 'Album.rar'}]}
             data = {'a'*40: entry} if as_object else [entry]
             return Response({'success': True, 'data': data})
     monkeypatch.setattr(torrents.requests, 'Session', CachedAPI)
@@ -109,7 +109,7 @@ def test_uncached_results_need_verified_audio_metadata(tmp_path):
             return Response({'success': True, 'data': data})
     _, client = torbox_fixture(tmp_path, MetadataAPI())
     rows = [Track(json.dumps({'url': 'magnet:?xt=urn:btih:'+letter*40, 'seeds': 4}), 'FLAC Album', source='torrent') for letter in ('a', 'b', 'c', 'd')]
-    assert client.filter_audio_results(rows) == rows[:1]
+    assert {row.id for row in client.filter_audio_results(rows)} == {row.id for row in rows[:2]}
 
 
 def test_engine_download_page_is_resolved_to_magnet_before_audio_check(tmp_path):
