@@ -1,6 +1,6 @@
 """Standalone Nova torrent search and TorBox HTTP audio streaming."""
 import ast
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeout
 import hashlib
 import json
 import os
@@ -19,6 +19,21 @@ from .platform import lock_exclusive
 
 TORBOX_API = 'https://api.torbox.app/v1/api'
 AUDIO_EXTENSIONS = {'.flac', '.mp3', '.wav', '.m4a', '.aac', '.alac', '.ogg', '.opus', '.aiff', '.aif', '.ape', '.wma'}
+
+
+def bounded_results(function, values, *, deadline, workers=8):
+    """Collect completed work without waiting for slow queued tasks at shutdown."""
+    pool = ThreadPoolExecutor(max_workers=workers)
+    futures = {pool.submit(function, value): value for value in values}
+    try:
+        for future in as_completed(futures, timeout=max(0, deadline-time.monotonic())):
+            yield futures[future], future.result()
+    except FutureTimeout:
+        pass
+    finally:
+        for future in futures:
+            future.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def audio_files(item):
@@ -107,7 +122,7 @@ def torrent_metadata(content):
     return hashlib.sha1(info_span).hexdigest(), {'files': names, 'trackers': trackers}
 
 
-def resolve_search_link(row, store):
+def resolve_search_link(row, store, *, timeout=25):
     payload = json.loads(row.id)
     identity = torrent_hash(payload['url'])
     if identity:
@@ -121,7 +136,7 @@ def resolve_search_link(row, store):
             env = dict(os.environ, TMPDIR=folder, TEMP=folder, TMP=folder)
             options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
             result = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(runner), str(nova_root(store)), engine, payload['url'], 'link'],
-                                    capture_output=True, env=env, timeout=25, **options)
+                                    capture_output=True, env=env, timeout=timeout, **options)
             if result.returncode:
                 return None, None, False
             lines = result.stdout.decode('utf-8', errors='replace').strip().splitlines()
@@ -253,7 +268,7 @@ def install_engine(source, store):
     return name
 
 
-def search_torrents(query, store, *, timeout=30):
+def search_torrents(query, store, *, timeout=30, progress=None):
     if not query.strip():
         raise ValueError('Enter a torrent search query')
     root = nova_root(store)
@@ -262,42 +277,46 @@ def search_torrents(query, store, *, timeout=30):
     if not engines or any(engine not in available for engine in engines):
         raise RuntimeError('Select installed search engines in Torrents (F11)')
     runner = Path(__file__).with_name('nova_runner.py')
+    deadline = time.monotonic() + timeout
     def search(engine):
         try:
             options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
             result = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(runner), str(root), engine, query],
-                                    capture_output=True, timeout=timeout, **options)
+                                    capture_output=True, timeout=max(.1, deadline-time.monotonic()), **options)
             output = result.stdout.decode('utf-8', errors='replace')
             return output, result.returncode == 0
         except subprocess.TimeoutExpired as error:
             # Preserve useful results already returned by a slow plugin.
             return (error.stdout or b'').decode('utf-8', errors='replace'), False
     rows, seen, succeeded = [], set(), False
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        for engine, (output, success) in zip(engines, pool.map(search, engines)):
-            succeeded |= success
-            for line in output.splitlines():
-                fields = line.split('|')
-                if len(fields) < 6:
-                    continue
-                url, title, size, seeds, _, provider = fields[:6]
-                if url in seen or urlparse(url).scheme not in ('http', 'https', 'magnet'):
-                    continue
-                try:
-                    size, seeds = int(size), int(seeds)
-                except ValueError:
-                    continue
-                title = unquote(title)
-                if seeds <= 0 or archive_release(title):
-                    continue
-                seen.add(url)
-                payload = {'url': url, 'size': size, 'seeds': seeds, 'provider': provider, 'engine': engine}
-                detail = f'{seeds} seeds · {size / 1024**2:.0f} MiB' if size >= 0 else f'{seeds} seeds'
-                rows.append(Track(json.dumps(payload), title, detail, 'torrent'))
+    for engine, (output, success) in bounded_results(search, engines, deadline=deadline+.2):
+        if progress: progress(f'Searched {engine} · checking matches…')
+        succeeded |= success
+        for line in output.splitlines():
+            fields = line.split('|')
+            if len(fields) < 6:
+                continue
+            url, title, size, seeds, _, provider = fields[:6]
+            if url in seen or urlparse(url).scheme not in ('http', 'https', 'magnet'):
+                continue
+            try:
+                size, seeds = int(size), int(seeds)
+            except ValueError:
+                continue
+            title = unquote(title)
+            if seeds <= 0 or archive_release(title):
+                continue
+            seen.add(url)
+            payload = {'url': url, 'size': size, 'seeds': seeds, 'provider': provider, 'engine': engine}
+            detail = f'{seeds} seeds · {size / 1024**2:.0f} MiB' if size >= 0 else f'{seeds} seeds'
+            rows.append(Track(json.dumps(payload), title, detail, 'torrent'))
     if not rows and not succeeded:
         raise RuntimeError('Torrent search engines failed or timed out. Try another engine in F11.')
     if rows and settings(store).get('torbox_token'):
+        if progress: progress(f'Checking audio contents for {len(rows)} matches…')
         rows = TorBox(store).filter_audio_results(rows)
+        if not rows:
+            raise RuntimeError('Engines found matches, but none had verified audio contents (non-audio files, unavailable metadata, or timed-out checks). Try fewer engines or a more specific artist/album query; check TorBox access in F11.')
     return sorted(rows, key=lambda track: json.loads(track.id)['seeds'], reverse=True)
 
 
@@ -310,15 +329,23 @@ class TorBox:
         self.session = session or requests.Session()
         self.account = hashlib.sha256(self.token.encode()).hexdigest()
 
-    def filter_audio_results(self, rows):
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            resolved = list(pool.map(lambda row: resolve_search_link(row, self.store), rows))
+    def filter_audio_results(self, rows, *, timeout=20):
+        deadline = time.monotonic() + timeout
+        # Prefer seeded candidates and cap network work for broad searches.
+        rows = sorted(rows, key=lambda row: json.loads(row.id).get('seeds', 0), reverse=True)[:80]
+        resolved = [result for _, result in bounded_results(
+            lambda row: resolve_search_link(row, self.store, timeout=min(8, max(.1, deadline-time.monotonic()))),
+            rows, deadline=min(deadline, time.monotonic()+8))]
         hashes = list(dict.fromkeys(identity for row, identity, verified in resolved if row and identity))
         accepted = {identity for row, identity, verified in resolved if row and verified}
         checked = set(accepted)
         for start in range(0, len(hashes), 100):
-            data = self.call('GET', 'torrents/checkcached', params={
-                'hash': ','.join(hashes[start:start+100]), 'list_files': 'true', 'format': 'list'}) or []
+            if time.monotonic() >= deadline: break
+            try:
+                data = self.call('GET', 'torrents/checkcached', timeout=min(8, max(.1, deadline-time.monotonic())), params={
+                    'hash': ','.join(hashes[start:start+100]), 'list_files': 'true', 'format': 'list'}) or []
+            except RuntimeError:
+                data = []
             entries = data.items() if isinstance(data, dict) else [(entry.get('hash', ''), entry) for entry in data if isinstance(entry, dict)]
             for identity, entry in entries:
                 if isinstance(entry, dict) and entry.get('files'):
@@ -330,14 +357,14 @@ class TorBox:
                         accepted.discard(identity)
         def inspect(identity):
             try:
-                item = self.call('GET', 'torrents/torrentinfo', params={'hash': identity, 'timeout': 5})
+                item = self.call('GET', 'torrents/torrentinfo', timeout=min(6, max(.1, deadline-time.monotonic())), params={'hash': identity, 'timeout': 5})
                 return identity if isinstance(item, dict) and audio_files(item) else None
             except RuntimeError:
                 # Unknown contents are excluded rather than advertising a
                 # potentially unplayable archive as an audio release.
                 return None
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            accepted.update(identity for identity in pool.map(inspect, [value for value in hashes if value not in checked]) if identity)
+        accepted.update(result for _, result in bounded_results(inspect,
+            [value for value in hashes if value not in checked], deadline=deadline) if result)
         return [row for row, identity, verified in resolved if row and identity in accepted]
 
     def remember(self, identity, title, status='TorBox', *, ready_audio=False):
@@ -370,7 +397,7 @@ class TorBox:
     def call(self, method, endpoint, **kwargs):
         try:
             response = self.session.request(method, f'{TORBOX_API}/{endpoint}',
-                                            headers={'Authorization': f'Bearer {self.token}'}, timeout=25, **kwargs)
+                                            headers={'Authorization': f'Bearer {self.token}'}, timeout=kwargs.pop('timeout', 25), **kwargs)
             if response.status_code in (401, 403):
                 raise RuntimeError('TorBox authentication failed. Check your API key in F11.')
             if response.status_code == 429:

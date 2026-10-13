@@ -80,7 +80,8 @@ def test_search_checks_actual_cached_files_for_mislabelled_archives(tmp_path, mo
             data = {'a'*40: entry} if as_object else [entry]
             return Response({'success': True, 'data': data})
     monkeypatch.setattr(torrents.requests, 'Session', CachedAPI)
-    assert torrents.search_torrents('Artist album', store) == []
+    with pytest.raises(RuntimeError, match='none had verified audio contents'):
+        torrents.search_torrents('Artist album', store)
 
 
 def test_cached_audio_is_retained_and_hash_encoding_is_normalized(tmp_path):
@@ -457,3 +458,66 @@ async def test_torbox_audio_url_streams_in_real_mpv_without_local_audio_copy(tmp
         await asyncio.to_thread(server.shutdown)
         server.server_close()
         thread.join(timeout=1)
+
+
+def test_search_deadline_does_not_multiply_with_many_engines(tmp_path):
+    import time
+    store = search_fixture(tmp_path)
+    engines = ['fixture']
+    for index in range(10):
+        name = f'slow{index}'
+        plugin = tmp_path / f'{name}.py'
+        plugin.write_text(f"import time\nclass {name}:\n    name = 'Slow'\n    url = 'https://example.org'\n    supported_categories = {{'music': ''}}\n    def search(self, query, category):\n        time.sleep(10)\n")
+        torrents.install_engine(str(plugin), store)
+        engines.append(name)
+    torrents.configure(store, engines=engines)
+    messages = []
+    start = time.monotonic()
+    rows = torrents.search_torrents('Artist album', store, timeout=1, progress=messages.append)
+    assert time.monotonic()-start < 2
+    assert len(rows) == 1
+    assert any('fixture' in message for message in messages)
+
+
+def test_audio_verification_returns_completed_results_without_waiting_for_slow_metadata(tmp_path):
+    import time
+    class SlowAPI:
+        def request(self, method, url, **kwargs):
+            if url.endswith('/checkcached'):
+                return Response({'success': True, 'data': [{'hash': 'a'*40, 'files': ['Song.flac']}]})
+            time.sleep(.3)
+            return Response({'success': True, 'data': {'files': ['Other.flac']}})
+    _, client = torbox_fixture(tmp_path, SlowAPI())
+    rows = [Track(json.dumps({'url': 'magnet:?xt=urn:btih:'+letter*40, 'seeds': 4}), 'Album', source='torrent') for letter in ('a', 'b')]
+    start = time.monotonic()
+    assert client.filter_audio_results(rows, timeout=.1) == rows[:1]
+    assert time.monotonic()-start < .25
+
+
+async def test_torrent_menu_remains_responsive_during_slow_search(tmp_path, monkeypatch):
+    import threading
+    from musik.app import Musik
+    from musik.torrent_screen import TorrentScreen
+    from textual.widgets import Input
+    from test_app import FakePlayer, FakeService
+    started, release = threading.Event(), threading.Event()
+    def slow_search(*args, **kwargs):
+        started.set()
+        release.wait(3)
+        return []
+    monkeypatch.setattr('musik.torrent_screen.search_torrents', slow_search)
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=FakePlayer())
+    try:
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.press('f11')
+            await pilot.pause()
+            screen = app.screen
+            screen.query_one('#torrent-query', Input).value = 'Artist album'
+            await pilot.click('#torrent-search')
+            await pilot.pause(.1)
+            assert started.is_set() and not release.is_set()
+            await pilot.click('#torrent-close')
+            await pilot.pause(.1)
+            assert not isinstance(app.screen, TorrentScreen)
+    finally:
+        release.set()

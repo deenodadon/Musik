@@ -292,7 +292,7 @@ class Musik(App):
                     results = await asyncio.to_thread(scan_local, Path(query[7:]).expanduser())
                 elif query.startswith('/torrent '):
                     from .torrents import search_torrents
-                    results = await asyncio.to_thread(search_torrents, query[9:].strip(), self.store)
+                    results = await asyncio.to_thread(search_torrents, query[9:].strip(), self.store, progress=lambda message: self.call_from_thread(self.status, message) if generation == self.generation else None)
                 elif query.startswith('magnet:'):
                     import json
                     from urllib.parse import parse_qs, urlparse

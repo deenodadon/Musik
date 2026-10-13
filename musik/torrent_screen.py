@@ -60,7 +60,7 @@ class TorrentScreen(ModalScreen):
 
     @on(Input.Submitted, '#torrent-query')
     async def submit_query(self, event):
-        await self.search()
+        self.run_worker(self.search(), group='torrent-search', exclusive=True)
 
     async def search(self):
         query = self.query_one('#torrent-query', Input).value.strip()
@@ -70,7 +70,7 @@ class TorrentScreen(ModalScreen):
         self.busy = True
         self.progress('Searching standalone Nova engines…')
         try:
-            rows = [Track(json.dumps({'url': query}), 'Open torrent in TorBox', 'TorBox', 'torrent')] if query.startswith('magnet:') else await asyncio.to_thread(search_torrents, query, self.store)
+            rows = [Track(json.dumps({'url': query}), 'Open torrent in TorBox', 'TorBox', 'torrent')] if query.startswith('magnet:') else await asyncio.to_thread(search_torrents, query, self.store, progress=lambda message: self.app.call_from_thread(self.progress, message))
             app = self.app
             app.remember_page()
             app.results = rows
@@ -94,7 +94,7 @@ class TorrentScreen(ModalScreen):
         if self.busy:
             return
         if identity == 'torrent-search':
-            await self.search()
+            self.run_worker(self.search(), group='torrent-search', exclusive=True)
             return
         self.busy = True
         try:
