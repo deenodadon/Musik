@@ -131,6 +131,58 @@ def test_uncached_torrent_keeps_remote_job_and_reports_progress(tmp_path):
     assert not any(call[1].endswith('/requestdl') for call in api.calls)
 
 
+def test_saved_torrents_survive_restart_and_reopen_by_id_without_reupload(tmp_path):
+    api = TorBoxAPI(ready=False)
+    store, client = torbox_fixture(tmp_path, api)
+    torrent = Track(json.dumps({'url': MAGNET}), 'Exact album', source='torrent')
+    with pytest.raises(RuntimeError, match='preparing'):
+        client.files(torrent)
+    saved = torrents.cached_torrents(Store(tmp_path))
+    assert len(saved) == 1 and saved[0].title == 'Exact album'
+    assert json.loads(saved[0].id)['torrent_id'] == 7
+    api.ready = True
+    assert client.files(saved[0])[0].source == 'torbox'
+    assert len([call for call in api.calls if call[1].endswith('/createtorrent')]) == 1
+    assert 'secret' not in (store.directory/'torbox-library.json').read_text()
+    torrents.configure(store, token='another-account')
+    assert torrents.cached_torrents(store) == []
+    with pytest.raises(RuntimeError, match='another TorBox account'):
+        torrents.TorBox(store, api).files(saved[0])
+
+
+def test_concurrent_saved_torrents_do_not_overwrite_other_entries(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    store, client = torbox_fixture(tmp_path)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda identity: client.remember(identity, f'Album {identity}'), range(20)))
+    assert len(torrents.cached_torrents(store)) == 20
+
+
+async def test_cached_torrents_tab_opens_remote_library_exact_item(tmp_path, monkeypatch):
+    from musik.app import Musik
+    from textual.widgets import DataTable
+    from test_app import FakePlayer, FakeService
+    store, client = torbox_fixture(tmp_path)
+    monkeypatch.setattr(torrents, 'TorBox', lambda store: client)
+    client.remember(7, 'Exact cached album', 'Cached · ready')
+    app = Musik(store=store, service=FakeService(), player=FakePlayer())
+    async with app.run_test(size=(160, 45)) as pilot:
+        await pilot.click('#menu-cached')
+        await pilot.pause(.1)
+        assert app.view == 'cached'
+        assert app.query_one('#tracks', DataTable).row_count == 1
+        assert app.tracks[0].title == 'Exact cached album'
+        app.query_one('#tracks', DataTable).focus()
+        await pilot.press('enter')
+        await pilot.pause(.1)
+        assert app.results[0].source == 'torbox'
+        assert app.player.played == []
+        assert not any(call[1].endswith('/createtorrent') for call in client.session.calls)
+        await pilot.press('backspace')
+        assert app.view == 'cached'
+        assert app.tracks[0].title == 'Exact cached album'
+
+
 def test_direct_torrent_metadata_is_uploaded_from_memory(tmp_path, monkeypatch):
     content = b'd4:infod4:name4:testee'
     monkeypatch.setattr(torrents.requests, 'get', lambda *a, **k: Response(content=content))

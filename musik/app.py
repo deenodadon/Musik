@@ -99,6 +99,8 @@ class Musik(App):
         self.state = self.store.load()
         self.service = service or MusicService(self.store)
         self.playlists = cached_playlists(self.store)
+        from .torrents import cached_torrents
+        self.cached = cached_torrents(self.store)
         self.playlist_contents = []
         self.player = player or BackgroundPlayer(self.store)
         self.background = getattr(self.player, "background", False)
@@ -116,6 +118,7 @@ class Musik(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Tabs(Tab("Results", id="menu-results"), Tab("Queue", id="menu-queue"),
+                   Tab("Cached torrents", id="menu-cached"),
                    Tab("Favorites", id="menu-favorites"), Tab("History", id="menu-history"),
                    Tab("Playlists", id="menu-playlists"), Tab("Plugins", id="menu-plugins"), Tab("Torrents", id="menu-torrents"), id="main-menu")
         yield Input(placeholder="Search music / YouTube videos, paste a YouTube link, or /local PATH", id="search")
@@ -169,6 +172,8 @@ class Musik(App):
     def tracks(self):
         if self.view == "playlists":
             return self.playlists
+        if self.view == 'cached':
+            return self.cached
         if self.view == "results":
             return [item for item in self.results if self.category(item) == self.results_section]
         return getattr(self.state, self.view)
@@ -199,6 +204,8 @@ class Musik(App):
             return
         if view == "playlists":
             self.action_playlists()
+        elif view == 'cached':
+            self.action_cached()
         else:
             self.action_view(view)
 
@@ -551,6 +558,22 @@ class Musik(App):
     def action_torrents(self):
         from .torrent_screen import TorrentScreen
         self.push_screen(TorrentScreen(self.store))
+
+    def action_cached(self):
+        from .torrents import cached_torrents, TorBox
+        self.cached = cached_torrents(self.store)
+        self.action_view('cached')
+        self.status('Enter reopens the exact torrent · Refreshing TorBox library…')
+        async def refresh():
+            try:
+                self.cached = await asyncio.to_thread(lambda: TorBox(self.store).library())
+                if self.view == 'cached':
+                    self.refresh_tracks()
+                    self.status('Enter opens audio files · Preparing torrents stay listed here')
+            except Exception as error:
+                if self.view == 'cached':
+                    self.status(str(error))
+        self.run_worker(refresh(), group='torrent-library', exclusive=True)
 
     def action_search(self):
         self.query_one(Input).focus()

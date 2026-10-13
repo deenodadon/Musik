@@ -52,6 +52,32 @@ def configure(store, *, token=None, engines=None):
     write_private(store.directory / 'torrents.json', config)
 
 
+def cached_torrents(store):
+    token = settings(store).get('torbox_token', '')
+    account = hashlib.sha256(token.encode()).hexdigest() if token else None
+    data = read_json(store.directory / 'torbox-library.json', {})
+    return [Track(json.dumps({'torrent_id': int(identity), 'account': account}), entry['title'],
+                  entry.get('status', 'TorBox'), 'torrent')
+            for identity, entry in data.get(account, {}).items()]
+
+
+def update_library(store, account, entries):
+    path = store.directory / 'torbox-library.json'
+    with (store.directory / 'torbox-library.lock').open('a+') as handle:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                lock_exclusive(handle)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Saved torrent storage is busy') from None
+                time.sleep(.01)
+        data = read_json(path, {})
+        data.setdefault(account, {}).update(entries)
+        write_private(path, data)
+
+
 def nova_root(store):
     bundled = Path(__file__).parent / 'vendor/nova'
     root = store.directory / 'nova'
@@ -150,6 +176,33 @@ class TorBox:
         if not self.token:
             raise RuntimeError('Connect TorBox in Torrents (F11) first')
         self.session = session or requests.Session()
+        self.account = hashlib.sha256(self.token.encode()).hexdigest()
+
+    def remember(self, identity, title, status='TorBox'):
+        update_library(self.store, self.account, {str(identity): {'title': title, 'status': status}})
+
+    def library(self):
+        data, seen, offset = [], set(), 0
+        while True:
+            page = self.call('GET', 'torrents/mylist', params={'limit': 1000, 'offset': offset, 'bypass_cache': 'true'}) or []
+            if not isinstance(page, list):
+                raise RuntimeError('TorBox returned an invalid torrent list')
+            fresh = [item for item in page if int(item['id']) not in seen]
+            data.extend(fresh)
+            seen.update(int(item['id']) for item in fresh)
+            if len(page) < 1000 or not fresh:
+                break
+            offset += len(page)
+        path = self.store.directory / 'torbox-library.json'
+        saved = read_json(path, {})
+        entries = {}
+        for item in data:
+            identity = str(int(item['id']))
+            title = item.get('name') or saved.get(self.account, {}).get(identity, {}).get('title') or f'Torrent {identity}'
+            status = 'Cached · ready' if item.get('download_finished') else f"Preparing · {float(item.get('progress') or 0)*100:.0f}%"
+            entries[identity] = {'title': title, 'status': status}
+        update_library(self.store, self.account, entries)
+        return cached_torrents(self.store)
 
     def call(self, method, endpoint, **kwargs):
         try:
@@ -215,17 +268,22 @@ class TorBox:
             return saved[key]
 
     def files(self, track):
-        torrent_id = self.add(json.loads(track.id)['url'])
+        payload = json.loads(track.id)
+        if payload.get('account') and payload['account'] != self.account:
+            raise RuntimeError('This torrent belongs to another TorBox account')
+        torrent_id = int(payload['torrent_id']) if 'torrent_id' in payload else self.add(payload['url'])
+        self.remember(torrent_id, track.title, 'Preparing')
         data = self.call('GET', 'torrents/mylist', params={'id': torrent_id, 'bypass_cache': 'true'})
         item = next((entry for entry in data if int(entry['id']) == torrent_id), None) if isinstance(data, list) else data
         if not item or not item.get('download_finished'):
             progress = float((item or {}).get('progress') or 0) * 100
             raise RuntimeError(f'TorBox is preparing this torrent ({progress:.0f}%). Select it again shortly; no audio is downloaded locally.')
+        self.remember(torrent_id, item.get('name') or track.title, 'Cached · ready')
         rows = []
         for file in item.get('files', []):
             name = file.get('short_name') or file.get('name') or ''
             if Path(name).suffix.lower() in AUDIO_EXTENSIONS:
-                payload = {'torrent_id': torrent_id, 'file_id': int(file['id'])}
+                payload = {'torrent_id': torrent_id, 'file_id': int(file['id']), 'account': self.account}
                 rows.append(Track(json.dumps(payload), Path(name).name, 'TorBox', 'torbox'))
         if not rows:
             raise RuntimeError('This torrent contains no supported audio files')
@@ -233,6 +291,8 @@ class TorBox:
 
     def stream(self, track):
         payload = json.loads(track.id)
+        if payload.get('account') and payload['account'] != self.account:
+            raise RuntimeError('This audio belongs to another TorBox account')
         url = self.call('GET', 'torrents/requestdl', params={
             'token': self.token, 'torrent_id': int(payload['torrent_id']), 'file_id': int(payload['file_id']),
             'zip_link': 'false', 'torrent_file': 'false', 'redirect': 'false'})
