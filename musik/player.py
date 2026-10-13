@@ -232,9 +232,14 @@ class Player:
         return track.url, stamps, helper_ready()
 
     def cache_audio(self, key, info):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import urlparse, parse_qs, unquote
         lifetime = 300.0
-        parsed = urlparse(info.get('url', ''))
+        url = info.get('url', '')
+        # mpv's archive protocol is not an HTTP URL. Its entry name can
+        # contain brackets, which urllib otherwise treats as an IPv6 host.
+        if url.startswith('archive://'):
+            url = unquote(url[len('archive://'):].split('|', 1)[0])
+        parsed = urlparse(url)
         expiry = parse_qs(parsed.query).get('expire', [None])[0]
         pieces = parsed.path.split('/')
         if expiry is None and 'expire' in pieces:
