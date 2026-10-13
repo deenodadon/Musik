@@ -60,6 +60,11 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/$script", [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+          $readme = Get-Content -LiteralPath './README.md' -Raw
+          foreach ($block in [regex]::Matches($readme, '(?s)```powershell\s*\r?\n(.*?)```')) {
+            [System.Management.Automation.Language.Parser]::ParseInput($block.Groups[1].Value, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
       - name: Test Windows playback and background control
         shell: pwsh
         run: |

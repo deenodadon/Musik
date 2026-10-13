@@ -2,12 +2,21 @@
 
 A terminal YouTube Music and local audio player with visualizer bars, artist and album browsing, automatic radio queues, playlists, and background playback. Inspired by [Pear Desktop](https://github.com/pear-devs/pear-desktop) and [Limusic](https://github.com/SimoHypers/limusic).
 
+Install Git and [GitHub CLI](https://cli.github.com/) first. Accept your repository invitation if it is private, then sign in once using your own GitHub account:
+
+```bash
+gh auth login --hostname github.com --git-protocol https --web
+gh auth setup-git
+```
+
+The one-line commands below work for public and private repositories using that saved login.
+
 ## Windows
 
 Install with this one-line PowerShell command (Windows 10/11 with WinGet):
 
 ```powershell
-& { $ErrorActionPreference = "Stop"; Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-musik.ps1"; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-musik.ps1" }
+& { $ErrorActionPreference = "Stop"; gh api -H "Accept: application/vnd.github.raw+json" "repos/deenodadon/Musik/contents/scripts/install-windows.ps1?ref=main" | Set-Content -Encoding UTF8 "$env:TEMP\install-musik.ps1"; if ($LASTEXITCODE -ne 0) { throw "GitHub download failed; check your login and repository access." }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\install-musik.ps1" }
 ```
 
 The installer sets up Musik, Python, Git, mpv and Node.js 22+ when needed. It does not install a browser. Open a **new PowerShell** and run `musik`.
@@ -17,12 +26,12 @@ The installer sets up Musik, Python, Git, mpv and Node.js 22+ when needed. It do
 Install on Nobara/Fedora, Ubuntu/Debian, Arch, or openSUSE:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/install-linux.sh -o /tmp/install-musik.sh && bash /tmp/install-musik.sh
+(task_script=$(mktemp) && trap 'rm -f "$task_script"' EXIT && gh api -H 'Accept: application/vnd.github.raw+json' 'repos/deenodadon/Musik/contents/scripts/install-linux.sh?ref=main' > "$task_script" && bash "$task_script")
 ```
 
 The installer sets up dependencies and downloads a verified official Node.js runtime if Node 22+ is missing. Then run `~/.local/bin/musik`, or add `~/.local/bin` to PATH to use `musik`.
 
-**Private repository:** Each invited user must accept their GitHub invitation, install GitHub CLI (`gh`), then run `gh auth login --hostname github.com --git-protocol https --web` and `gh auth setup-git`. Musik v0.9.1+ uses Git's saved credentials for automatic updates without prompting. Public raw-file install/uninstall commands above require a public repository; for a private repo, authenticate first, clone it, and run the corresponding script from the checkout. Never put a GitHub token in a command URL or share one between users.
+**Private repository:** Musik v0.9.1+ uses Git's saved credentials for automatic updates without prompting. The authenticated one-line commands also work when the repo is private. Never put a GitHub token in a command URL or share one between users.
 
 ## Use
 
@@ -76,10 +85,18 @@ Windows sign-in detects your default browser; the installer does not install a b
 Removes Musik and its saved data, while keeping shared prerequisites and personal music:
 
 ```powershell
-& { $ErrorActionPreference = "Stop"; Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/uninstall-windows.ps1" -OutFile "$env:TEMP\uninstall-musik.ps1"; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\uninstall-musik.ps1" }
+& { $ErrorActionPreference = "Stop"; gh api -H "Accept: application/vnd.github.raw+json" "repos/deenodadon/Musik/contents/scripts/uninstall-windows.ps1?ref=main" | Set-Content -Encoding UTF8 "$env:TEMP\uninstall-musik.ps1"; if ($LASTEXITCODE -ne 0) { throw "GitHub download failed; check your login and repository access." }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\uninstall-musik.ps1" }
 ```
 
 Add `-KeepData` to keep saved Musik data. Use `-InstallDirectory PATH` for a custom installation. Edited source checkouts are preserved in a sibling backup folder. Close/reopen PowerShell afterward.
+
+## Uninstall Linux
+
+```bash
+(task_script=$(mktemp) && trap 'rm -f "$task_script"' EXIT && gh api -H 'Accept: application/vnd.github.raw+json' 'repos/deenodadon/Musik/contents/scripts/uninstall-linux.sh?ref=main' > "$task_script" && bash "$task_script")
+```
+
+Stops playback and removes Musik and saved data, keeping shared prerequisites and personal music. Add `--keep-data` after `bash "$task_script"` to retain saved data. For custom locations, set `MUSIK_INSTALL_DIR` and `MUSIK_BIN_DIR`; edited source is backed up before removal.
 
 Queued songs prepare their stream links in the background to reduce loading when selecting any queued song. This does not guarantee instant or gapless playback. Open **Plugins** (F10) to install or uninstall Nuclear music-provider plugins, choose providers, and configure settings. To remove a plugin from the command line, use `musik plugins --uninstall ID`; this deletes its files and settings and restores any selected providers to Musik defaults. Desktop-only plugins require separate terminal adapters.
 
