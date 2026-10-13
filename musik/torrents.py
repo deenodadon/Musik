@@ -297,6 +297,8 @@ def search_torrents(query, store, *, timeout=30, progress=None):
             if len(fields) < 6:
                 continue
             url, title, size, seeds, _, provider = fields[:6]
+            if urlparse(url).scheme not in ('http', 'https', 'magnet'):
+                url = unquote(url)
             if url in seen or urlparse(url).scheme not in ('http', 'https', 'magnet'):
                 continue
             try:

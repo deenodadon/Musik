@@ -73,6 +73,8 @@ class TorrentScreen(ModalScreen):
             rows = [Track(json.dumps({'url': query}), 'Open torrent in TorBox', 'TorBox', 'torrent')] if query.startswith('magnet:') else await asyncio.to_thread(search_torrents, query, self.store, progress=lambda message: self.app.call_from_thread(self.progress, message))
             app = self.app
             app.remember_page()
+            app.torrent_filter = ""
+            app.query_one("#torrent-filter", Input).value = ""
             app.results = rows
             app.playlist_contents = []
             app.catalog_title = 'TORRENTS'

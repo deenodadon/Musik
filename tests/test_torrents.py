@@ -142,13 +142,17 @@ def test_torrent_metadata_checks_real_files_and_preserves_info_hash():
         torrents.torrent_metadata(b'<html>not a torrent</html>')
 
 
-def test_nova_metadata_download_rejects_audio_archives_and_oversized_responses(tmp_path):
+@pytest.mark.parametrize("url_hook", [False, True])
+def test_nova_metadata_download_rejects_audio_archives_and_oversized_responses(tmp_path, url_hook):
     import gzip
     import http.server
     import subprocess
     import sys
     import threading
     store = search_fixture(tmp_path)
+    if url_hook:
+        plugin = store.directory / 'nova/engines/fixture.py'
+        plugin.write_text(plugin.read_text() + "    def download_torrent(self, url):\n        print(url + ' ' + url)\n")
     valid = b'd4:infod4:name9:song.flac6:lengthi100eee'
     bodies = {'torrent': valid, 'zip': b'PKarchive', 'audio': b'audio bytes',
               'large': b'd'+b'x'*2_000_000, 'gzip-large': gzip.compress(b'd'+b'x'*2_000_000)}
@@ -521,3 +525,45 @@ async def test_torrent_menu_remains_responsive_during_slow_search(tmp_path, monk
             assert not isinstance(app.screen, TorrentScreen)
     finally:
         release.set()
+
+
+async def test_local_torrent_filter_preserves_results_and_selected_item(tmp_path):
+    from musik.app import Musik
+    from textual.widgets import Input, DataTable
+    from test_app import FakePlayer, FakeService
+    app = Musik(store=Store(tmp_path), service=FakeService(), player=FakePlayer())
+    rows = [Track(json.dumps({'url': MAGNET, 'seeds': 10}), 'Artist FLAC 24-bit Lossless', source='torrent'),
+            Track(json.dumps({'url': MAGNET+'b', 'seeds': 5}), 'Artist MP3 320', source='torrent')]
+    async with app.run_test(size=(120, 50)) as pilot:
+        app.results = rows.copy()
+        app.choose_section()
+        app.action_view('results')
+        field = app.query_one('#torrent-filter', Input)
+        assert field.display
+        field.focus()
+        await pilot.press('f', 'l', 'a', 'c')
+        await pilot.pause()
+        assert app.tracks == rows[:1]
+        assert app.selected() == rows[0]
+        assert app.results == rows
+        field.value = 'lossless 24bit'
+        await pilot.pause()
+        assert app.tracks == rows[:1]
+        field.value = 'nothing'
+        await pilot.pause()
+        assert app.query_one('#tracks', DataTable).row_count == 0
+        assert app.selected() is None
+        field.value = ''
+        await pilot.pause()
+        assert app.tracks == rows
+        app.action_view('queue')
+        assert not field.display
+
+
+def test_bundled_rockbox_and_encoded_download_links(tmp_path):
+    store = search_fixture(tmp_path)
+    assert 'rockbox' in torrents.engine_names(store)
+    plugin = store.directory/'nova/engines/fixture.py'
+    plugin.write_text(plugin.read_text().replace("'magnet:?xt=urn:btih:' + 'a'*40", "'https%3A//example.org/download.php?id=1'"))
+    rows = torrents.search_torrents('Artist album', store)
+    assert json.loads(rows[0].id)['url'] == 'https://example.org/download.php?id=1'

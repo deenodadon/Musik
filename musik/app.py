@@ -50,6 +50,7 @@ class Musik(App):
     #side { width: 1fr; margin-left: 2; }
     #queue-help { height: auto; color: #8899aa; }
     #tracks { height: 1fr; border: round #435674; }
+    #torrent-filter { height: 3; border: round #435674; }
     #lyrics { height: 1fr; border: round #435674; padding: 1; overflow-y: auto; }
     #now { height: auto; min-height: 5; margin: 1 2; padding: 0 1; border: round #66d9bb; }
     #playback-ready { height: 2; margin: 0 2; color: #66d9bb; }
@@ -114,6 +115,7 @@ class Musik(App):
         self.browse_history = []
         self.results_section = "songs"
         self.highlight_stamp = None
+        self.torrent_filter = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -129,6 +131,7 @@ class Musik(App):
                            Tab("Artists", id="section-artists"), Tab("Videos", id="section-videos"), Tab("Torrents", id="section-torrents"), id="result-sections")
                 yield Static("", id="queue-help", markup=False)
                 yield BrowserTable(id="tracks", cursor_type="row")
+                yield Input(placeholder="Filter these results: flac, lossless, 24bit…", id="torrent-filter")
             with Vertical(id="side"):
                 yield Static("LYRICS", classes="label")
                 yield Static("Select a song and press L.\n\n1 Results · 2 Queue\n3 Favorites · 4 History\nA Add to queue · Enter Play\nS Shuffle · R Repeat\nE Equalizer · V Speed", id="lyrics", markup=False)
@@ -175,7 +178,15 @@ class Musik(App):
         if self.view == 'cached':
             return self.cached
         if self.view == "results":
-            return [item for item in self.results if self.category(item) == self.results_section]
+            rows = [item for item in self.results if self.category(item) == self.results_section]
+            if self.results_section == 'torrents' and self.torrent_filter.strip():
+                import re
+                terms = re.findall(r'\w+', self.torrent_filter.casefold())
+                def matches(item):
+                    text = (item.title + ' ' + item.artist).casefold()
+                    return all(term in text or (term == '24bit' and re.search(r'24[\s-]+bit', text)) for term in terms)
+                rows = [item for item in rows if matches(item)]
+            return rows
         return getattr(self.state, self.view)
 
     @staticmethod
@@ -246,6 +257,7 @@ class Musik(App):
         desired = f"section-{self.results_section}"
         if tabs.active != desired:
             tabs.active = desired
+        self.query_one('#torrent-filter', Input).display = self.view == 'results' and self.results_section == 'torrents'
         cursor_row = table.cursor_row
         current = self.state.current
         active = current is not None and not self.player.idle
@@ -277,11 +289,23 @@ class Musik(App):
         except OSError as exc:
             self.status(f"Could not save: {exc}")
 
+    @on(Input.Changed, '#torrent-filter')
+    def filter_torrents(self, event):
+        self.torrent_filter = event.value
+        if self.view == 'results' and self.results_section == 'torrents':
+            self.refresh_tracks()
+
+    @on(Input.Submitted, '#torrent-filter')
+    def focus_filtered_results(self, event):
+        self.query_one('#tracks', DataTable).focus()
+
     @on(Input.Submitted, "#search")
     async def submitted(self, event):
         query = event.value.strip()
         if not query:
             return
+        self.query_one("#torrent-filter", Input).value = ""
+        self.torrent_filter = ""
         self.generation += 1
         generation = self.generation
         self.status("Searching…")

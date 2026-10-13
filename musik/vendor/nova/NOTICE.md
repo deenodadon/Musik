@@ -18,3 +18,8 @@ content and limit both compressed and decoded metadata reads to 2 MB.
 
 Musik runs search plugins through its own subprocess adapter. No qBittorrent
 GUI, Web UI, torrent client, or local BitTorrent downloader is required.
+
+RockBox (`engines/rockbox.py`, version 1.2) is bundled unmodified from
+https://github.com/LightDestory/qBittorrent-Search-Plugins, revision
+0d3b18677c6f059031149abc7c2f46e994354298. Author: LightDestory.
+Its repository license is GNU GPL v3; see ROCKBOX-LICENSE.txt.
