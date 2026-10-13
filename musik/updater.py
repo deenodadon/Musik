@@ -59,7 +59,9 @@ def start_check(store):
 
 def run_command(arguments, cwd=None, timeout=180):
     # Capture output so Git/pip never corrupt the terminal interface.
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", PIP_NO_INPUT="1")
+    # Reuse the user's credential helper for private repository access without
+    # opening an authentication prompt from the detached background updater.
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never", PIP_NO_INPUT="1")
     result = subprocess.run(arguments, cwd=cwd, env=env, capture_output=True,
                             text=True, timeout=timeout)
     if result.returncode:
@@ -87,7 +89,7 @@ def check_and_update(store, remote=REMOTE, installer=install_checkout):
         data = {"installed_commit": installed, "message": "Checking for updates…"}
         save_status(store, data)
         try:
-            output = run_command(["git", "-c", "credential.helper=", "ls-remote", remote, "refs/heads/main"], timeout=30)
+            output = run_command(["git", "ls-remote", remote, "refs/heads/main"], timeout=30)
             tip = output.split()[0] if output else ""
             if len(tip) != 40 or any(c not in "0123456789abcdef" for c in tip):
                 raise RuntimeError("Repository main branch is unavailable")
@@ -98,7 +100,7 @@ def check_and_update(store, remote=REMOTE, installer=install_checkout):
                 save_status(store, data)
                 with tempfile.TemporaryDirectory(prefix="musik-update-") as folder:
                     source = Path(folder) / "source"
-                    run_command(["git", "-c", "credential.helper=", "clone", "--depth", "1", "--branch", "main", remote, str(source)], timeout=60)
+                    run_command(["git", "clone", "--depth", "1", "--branch", "main", remote, str(source)], timeout=60)
                     # Install the commit actually fetched, including a newer push
                     # made between ls-remote and clone.
                     commit = run_command(["git", "-C", str(source), "rev-parse", "HEAD"], timeout=10)

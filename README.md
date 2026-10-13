@@ -22,6 +22,8 @@ curl -fsSL https://raw.githubusercontent.com/deenodadon/Musik/main/scripts/insta
 
 The installer sets up dependencies and downloads a verified official Node.js runtime if Node 22+ is missing. Then run `~/.local/bin/musik`, or add `~/.local/bin` to PATH to use `musik`.
 
+**Private repository:** Each invited user must accept their GitHub invitation, install GitHub CLI (`gh`), then run `gh auth login --hostname github.com --git-protocol https --web` and `gh auth setup-git`. Musik v0.9.1+ uses Git's saved credentials for automatic updates without prompting. Public raw-file install/uninstall commands above require a public repository; for a private repo, authenticate first, clone it, and run the corresponding script from the checkout. Never put a GitHub token in a command URL or share one between users.
+
 ## Use
 
 | Command | Action |
