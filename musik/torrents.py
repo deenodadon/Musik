@@ -411,22 +411,48 @@ class TorBox:
         return cached_torrents(self.store)
 
     def call(self, method, endpoint, **kwargs):
-        try:
-            response = self.session.request(method, f'{TORBOX_API}/{endpoint}',
-                                            headers={'Authorization': f'Bearer {self.token}'}, timeout=kwargs.pop('timeout', 25), **kwargs)
-            if response.status_code in (401, 403):
-                raise RuntimeError('TorBox authentication failed. Check your API key in F11.')
-            if response.status_code == 429:
-                raise RuntimeError('TorBox rate limit reached. Try again shortly.')
-            response.raise_for_status()
-            data = response.json()
-        except requests.RequestException:
-            raise RuntimeError('TorBox request failed. Check network access and try again.') from None
-        except ValueError:
-            raise RuntimeError('TorBox returned an invalid response') from None
-        if not data.get('success'):
-            raise RuntimeError(f"TorBox could not complete this request ({data.get('error', 'unknown error')})")
-        return data.get('data')
+        stage = {'torrents/mylist': 'reading the cached torrent list',
+                 'torrents/requestdl': 'requesting the file streaming URL',
+                 'torrents/checkcached': 'checking cached contents',
+                 'torrents/torrentinfo': 'checking torrent metadata',
+                 'torrents/createtorrent': 'adding the torrent'}.get(endpoint, 'contacting TorBox')
+        deadline = time.monotonic() + kwargs.pop('timeout', 25)
+        retryable = {500, 502, 503, 504}
+        for attempt in range(2 if method == 'GET' else 1):
+            try:
+                response = self.session.request(method, f'{TORBOX_API}/{endpoint}',
+                    headers={'Authorization': f'Bearer {self.token}'},
+                    timeout=max(.1, deadline-time.monotonic()), **kwargs)
+            except requests.RequestException as error:
+                if attempt == 0 and method == 'GET' and deadline-time.monotonic() > .5:
+                    time.sleep(.25)
+                    continue
+                reason = 'timed out' if isinstance(error, requests.Timeout) else 'connection failed'
+                raise RuntimeError(f'TorBox {reason} while {stage}. Retry shortly or check TorBox in F11.') from None
+            status = response.status_code
+            if status in retryable and attempt == 0 and method == 'GET' and deadline-time.monotonic() > .5:
+                close = getattr(response, 'close', None)
+                if close: close()
+                time.sleep(.25)
+                continue
+            if status in (401, 403):
+                raise RuntimeError(f'TorBox authentication failed while {stage} (HTTP {status}). Check your API key in F11.')
+            if status == 429:
+                raise RuntimeError(f'TorBox rate limit reached while {stage} (HTTP 429). Wait before retrying.')
+            if status >= 400:
+                raise RuntimeError(f'TorBox rejected the request while {stage} (HTTP {status}). Retry shortly; persistent errors may require TorBox support.')
+            try:
+                data = response.json()
+            except ValueError:
+                raise RuntimeError(f'TorBox returned an invalid response while {stage}') from None
+            if not isinstance(data, dict):
+                raise RuntimeError(f'TorBox returned an invalid response while {stage}')
+            if not data.get('success'):
+                code = str(data.get('error', 'unknown error'))
+                if not re.fullmatch(r'[A-Z][A-Z_]{1,63}', code) or self.token in code:
+                    code = 'unknown error'
+                raise RuntimeError(f'TorBox could not complete the request while {stage} ({code})')
+            return data.get('data')
 
     def check(self):
         return self.call('GET', 'torrents/mylist', params={'limit': 1})
@@ -478,7 +504,8 @@ class TorBox:
         if payload.get('account') and payload['account'] != self.account:
             raise RuntimeError('This torrent belongs to another TorBox account')
         torrent_id = int(payload['torrent_id']) if 'torrent_id' in payload else self.add(payload['url'])
-        self.remember(torrent_id, track.title, 'Preparing')
+        if 'torrent_id' not in payload:
+            self.remember(torrent_id, track.title, 'Preparing')
         data = self.call('GET', 'torrents/mylist', params={'id': torrent_id, 'bypass_cache': 'true'})
         item = next((entry for entry in data if int(entry['id']) == torrent_id), None) if isinstance(data, list) else data
         if not item or not item.get('download_finished'):

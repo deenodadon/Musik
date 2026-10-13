@@ -567,3 +567,55 @@ def test_bundled_rockbox_and_encoded_download_links(tmp_path):
     plugin.write_text(plugin.read_text().replace("'magnet:?xt=urn:btih:' + 'a'*40", "'https%3A//example.org/download.php?id=1'"))
     rows = torrents.search_torrents('Artist album', store)
     assert json.loads(rows[0].id)['url'] == 'https://example.org/download.php?id=1'
+
+
+@pytest.mark.parametrize('failure', ['server', 'connection'])
+def test_cached_torrent_open_recovers_from_transient_api_failure(tmp_path, failure):
+    class Transient(TorBoxAPI):
+        attempts = 0
+        def request(self, method, url, **kwargs):
+            if url.endswith('/mylist'):
+                self.attempts += 1
+                if self.attempts == 1:
+                    if failure == 'connection':
+                        raise requests.ConnectionError('private URL token must not leak')
+                    return Response(status=503)
+            return super().request(method, url, **kwargs)
+    api = Transient()
+    _, client = torbox_fixture(tmp_path, api)
+    rows = client.files(Track(json.dumps({'torrent_id': 7}), 'Album', source='torrent'))
+    assert len(rows) == 1
+    assert api.attempts == 2
+
+
+def test_failed_cached_open_preserves_verified_library_and_reports_stage(tmp_path):
+    class Failed:
+        def request(self, *args, **kwargs):
+            return Response(status=502)
+    store, client = torbox_fixture(tmp_path, Failed())
+    client.remember(7, 'Album', 'Cached · ready', ready_audio=True)
+    with pytest.raises(RuntimeError, match='cached torrent list.*HTTP 502'):
+        client.files(torrents.cached_torrents(store)[0])
+    assert len(torrents.cached_torrents(store)) == 1
+
+
+def test_failed_streaming_url_reports_api_stage(tmp_path):
+    class Failed:
+        def request(self, *args, **kwargs):
+            return Response(status=400)
+    _, client = torbox_fixture(tmp_path, Failed())
+    with pytest.raises(RuntimeError, match='file streaming URL.*HTTP 400'):
+        client.stream(Track(json.dumps({'torrent_id': 7, 'file_id': 0}), 'Song', source='torbox'))
+
+
+def test_torrent_creation_is_not_retried_after_connection_failure(tmp_path):
+    class Failed:
+        attempts = 0
+        def request(self, *args, **kwargs):
+            self.attempts += 1
+            raise requests.ConnectionError('private URL token must not leak')
+    api = Failed()
+    _, client = torbox_fixture(tmp_path, api)
+    with pytest.raises(RuntimeError, match='adding the torrent'):
+        client.add(MAGNET)
+    assert api.attempts == 1
