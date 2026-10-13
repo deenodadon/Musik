@@ -18,7 +18,7 @@ class Track:
 
     @property
     def url(self) -> str:
-        if self.source in ("local", "nuclear"):
+        if self.source in ("local", "nuclear", "torrent", "torbox"):
             return self.id
         return f"https://www.youtube.com/watch?v={self.id}"
 

@@ -235,7 +235,7 @@ class Daemon:
             elif operation == "playlist":
                 self.waiting_for_radio = False
                 tracks = [Track(**item) for item in args["tracks"]]
-                if not tracks or any(t.source not in ("youtube", "video", "local", "nuclear") for t in tracks):
+                if not tracks or any(t.source not in ("youtube", "video", "local", "nuclear", "torbox") for t in tracks):
                     raise ValueError("Playlist has no playable tracks")
                 self.radio_generation += 1
                 if self.radio_task:
@@ -378,7 +378,7 @@ class Daemon:
             for track in list(self.state.queue):
                 if self.stopping.is_set():
                     return
-                if track.source == "local" or track not in self.state.queue:
+                if track.source in ("local", "torrent") or track not in self.state.queue:
                     continue
                 try:
                     await self.player.prepare_audio(track)

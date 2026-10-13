@@ -90,6 +90,7 @@ class Musik(App):
         Binding("ctrl+left", "seek(-10)", "Seek -10s", priority=True),
         ("e", "equalizer", "EQ"), ("v", "speed", "Speed"),
         ("f10", "plugins", "Plugins"), ("q", "quit", "Detach"), Binding("escape", "browse", "Browse", priority=True),
+        ("f11", "torrents", "Torrents"),
     ]
 
     def __init__(self, store=None, service=None, player=None, local=None):
@@ -116,13 +117,13 @@ class Musik(App):
         yield Header()
         yield Tabs(Tab("Results", id="menu-results"), Tab("Queue", id="menu-queue"),
                    Tab("Favorites", id="menu-favorites"), Tab("History", id="menu-history"),
-                   Tab("Playlists", id="menu-playlists"), Tab("Plugins", id="menu-plugins"), id="main-menu")
+                   Tab("Playlists", id="menu-playlists"), Tab("Plugins", id="menu-plugins"), Tab("Torrents", id="menu-torrents"), id="main-menu")
         yield Input(placeholder="Search music / YouTube videos, paste a YouTube link, or /local PATH", id="search")
         with Horizontal(id="body"):
             with Vertical(id="browse"):
                 yield Static("RESULTS", id="heading", classes="label", markup=False)
                 yield Tabs(Tab("Songs", id="section-songs"), Tab("Albums", id="section-albums"),
-                           Tab("Artists", id="section-artists"), Tab("Videos", id="section-videos"), id="result-sections")
+                           Tab("Artists", id="section-artists"), Tab("Videos", id="section-videos"), Tab("Torrents", id="section-torrents"), id="result-sections")
                 yield Static("", id="queue-help", markup=False)
                 yield BrowserTable(id="tracks", cursor_type="row")
             with Vertical(id="side"):
@@ -175,10 +176,10 @@ class Musik(App):
     @staticmethod
     def category(item):
         from .nuclear import item_kind
-        return {"artist": "artists", "album": "albums", "video": "videos"}.get(item_kind(item), "songs")
+        return {"artist": "artists", "album": "albums", "video": "videos", "torrent": "torrents"}.get(item_kind(item), "songs")
 
     def choose_section(self):
-        self.results_section = next((kind for kind in ("songs", "albums", "artists", "videos")
+        self.results_section = next((kind for kind in ("songs", "albums", "artists", "videos", "torrents")
                                      if any(self.category(item) == kind for item in self.results)), "songs")
 
     @on(Tabs.TabActivated, "#main-menu")
@@ -186,6 +187,10 @@ class Musik(App):
         if event.tab.id == "menu-plugins":
             self.query_one("#main-menu", Tabs).active = "menu-" + self.view
             self.action_plugins()
+            return
+        if event.tab.id == "menu-torrents":
+            self.query_one("#main-menu", Tabs).active = "menu-" + self.view
+            self.action_torrents()
             return
         if event.tab.id != self.query_one("#main-menu", Tabs).active:
             return
@@ -228,7 +233,7 @@ class Musik(App):
                          else "Queue is empty. Search for music and press A to add a track, or Enter to play.")
         tabs = self.query_one("#result-sections", Tabs)
         tabs.display = self.view == "results"
-        for section in ("songs", "albums", "artists", "videos"):
+        for section in ("songs", "albums", "artists", "videos", "torrents"):
             count = sum(self.category(item) == section for item in self.results)
             tabs.get_tab(f"section-{section}").label = f"{section.title()} ({count})"
         desired = f"section-{self.results_section}"
@@ -241,7 +246,7 @@ class Musik(App):
         table.clear()
         for index, track in enumerate(self.tracks):
             from .nuclear import item_kind
-            kind = {"song": "Song", "youtube": "Song", "video": "Video", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist"}.get(item_kind(track), track.source)
+            kind = {"song": "Song", "youtube": "Song", "video": "Video", "local": "Local", "artist": "Artist", "album": "Album", "playlist": "Playlist", "torrent": "Torrent", "torbox": "Audio"}.get(item_kind(track), track.source)
             is_current = active and (index == self.state.index if self.view == "queue"
                                     else item_kind(track) not in ("artist", "album", "playlist")
                                     and track.id == current.id and track.url == current.url)
@@ -278,6 +283,14 @@ class Musik(App):
             try:
                 if query.startswith("/local "):
                     results = await asyncio.to_thread(scan_local, Path(query[7:]).expanduser())
+                elif query.startswith('/torrent '):
+                    from .torrents import search_torrents
+                    results = await asyncio.to_thread(search_torrents, query[9:].strip(), self.store)
+                elif query.startswith('magnet:'):
+                    import json
+                    from urllib.parse import parse_qs, urlparse
+                    title = parse_qs(urlparse(query).query).get('dn', ['Open torrent in TorBox'])[0]
+                    results = [Track(json.dumps({'url': query}), title, 'TorBox', 'torrent')]
                 elif query.startswith(("https://", "http://")):
                     from urllib.parse import urlparse, parse_qs
                     parsed = urlparse(query)
@@ -318,6 +331,9 @@ class Musik(App):
         if track is None:
             return
         from .nuclear import item_kind
+        if track.source == 'torrent':
+            self.run_worker(partial(self.open_torrent, track), group='catalog', exclusive=True)
+            return
         if item_kind(track) in ("artist", "album", "playlist"):
             self.run_worker(partial(self.open_catalog, track), group="catalog", exclusive=True)
             return
@@ -337,6 +353,26 @@ class Musik(App):
     def remember_page(self):
         self.browse_history.append((self.view, self.results.copy(), self.catalog_title,
                                     self.playlist_contents.copy(), self.results_section, self.query_one(DataTable).cursor_row))
+
+    async def open_torrent(self, track):
+        from .torrents import TorBox
+        self.generation += 1
+        generation = self.generation
+        self.status(f'Opening {track.title} in TorBox…')
+        try:
+            rows = await asyncio.to_thread(lambda: TorBox(self.store).files(track))
+            if generation != self.generation:
+                return
+            self.remember_page()
+            self.results = rows
+            self.playlist_contents = rows.copy()
+            self.catalog_title = track.title
+            self.choose_section()
+            self.action_view('results')
+            self.status('Enter streams audio · O queues this collection · Backspace goes back')
+        except Exception as error:
+            if generation == self.generation:
+                self.status(str(error))
 
     async def open_catalog(self, track):
         self.generation += 1
@@ -512,6 +548,10 @@ class Musik(App):
         from .plugin_screen import PluginScreen
         self.push_screen(PluginScreen(self.service))
 
+    def action_torrents(self):
+        from .torrent_screen import TorrentScreen
+        self.push_screen(TorrentScreen(self.store))
+
     def action_search(self):
         self.query_one(Input).focus()
 
@@ -532,8 +572,8 @@ class Musik(App):
     async def action_enqueue(self):
         if track := self.selected():
             from .nuclear import item_kind
-            if item_kind(track) in ("artist", "album", "playlist"):
-                self.status("Open this artist, album or playlist with Enter first")
+            if item_kind(track) in ("artist", "album", "playlist", "torrent"):
+                self.status("Open this collection with Enter first")
                 return
             if self.background:
                 await self.remote("enqueue", track=asdict(track))
@@ -682,7 +722,10 @@ class Musik(App):
 
 def main():
     parser = argparse.ArgumentParser(description="Musik terminal music player")
-    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor", "setup-playback", "plugins"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "login", "logout", "reset", "doctor", "setup-playback", "plugins", "torrents"], help="Open the TUI (default), stop playback, import a browser sign-in, or sign out")
+    parser.add_argument('--connect-torbox', action='store_true', help='Save a TorBox API key using a hidden prompt')
+    parser.add_argument('--disconnect-torbox', action='store_true', help='Remove the saved TorBox API key')
+    parser.add_argument('--install-engine', help='Install a trusted Nova search plugin from a .py URL or local path')
     parser.add_argument("--plugin", help="Nuclear registry plugin ID to inspect or configure")
     parser.add_argument("--install", dest="install_plugin", help="Install and enable a Nuclear registry plugin")
     parser.add_argument("--enable", dest="enable_plugin", help="Enable an installed Nuclear plugin")
@@ -700,6 +743,10 @@ def main():
     parser.add_argument("--account", type=int, default=0, help="Browser Google account index for login: 0 first, 1 second, etc.")
     args = parser.parse_args()
     try:
+        if args.command == 'torrents':
+            from .torrents import torrent_command
+            torrent_command(args)
+            return
         if args.command == "plugins":
             from .nuclear import plugin_command
             plugin_command(args)

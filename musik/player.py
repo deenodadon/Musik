@@ -227,7 +227,7 @@ class Player:
     def audio_cache_key(self, track):
         from .auth import cookie_path
         from .playback_setup import helper_ready
-        paths = (cookie_path(self.store), self.store.directory / 'account.json', self.store.directory / 'plugins/plugins.json', self.store.directory / 'plugins/settings.json')
+        paths = (cookie_path(self.store), self.store.directory / 'account.json', self.store.directory / 'plugins/plugins.json', self.store.directory / 'plugins/settings.json', self.store.directory / 'torrents.json')
         stamps = tuple(path.stat().st_mtime_ns if path.exists() else None for path in paths)
         return track.url, stamps, helper_ready()
 
@@ -253,6 +253,11 @@ class Player:
             self.audio_cache.popitem(last=False)
 
     def resolve_track(self, track):
+        if track.source == 'torbox':
+            from .torrents import TorBox
+            return TorBox(self.store).stream(track)
+        if track.source == 'torrent':
+            raise RuntimeError('Open this torrent with Enter and select an audio file first')
         from .nuclear import nuclear_track
         if track.source == 'nuclear':
             payload = json.loads(track.id)

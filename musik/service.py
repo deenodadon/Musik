@@ -295,6 +295,8 @@ class MusicService:
         return rows
 
     def radio(self, track, limit=25):
+        if track.source in ('torrent', 'torbox'):
+            return []
         if provider := self.nuclear.selected('discovery'):
             from .nuclear import nuclear_track, convert_item
             result = self.nuclear.call('invoke', provider=provider, kind='discovery', method='getRecommendations', args=[[nuclear_track(track)], {'variety': .5, 'limit': limit}])
@@ -324,6 +326,8 @@ class MusicService:
         return tracks
 
     def lyrics(self, track):
+        if track.source in ('torrent', 'torbox'):
+            return 'Lyrics are unavailable for torrent audio.'
         if provider := self.nuclear.selected('lyrics'):
             from .nuclear import nuclear_track
             result = self.nuclear.call('lyrics', track=nuclear_track(track), provider=provider)
