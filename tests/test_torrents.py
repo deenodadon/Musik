@@ -619,3 +619,45 @@ def test_torrent_creation_is_not_retried_after_connection_failure(tmp_path):
     with pytest.raises(RuntimeError, match='adding the torrent'):
         client.add(MAGNET)
     assert api.attempts == 1
+
+
+
+def test_recent_file_link_is_reused_across_tui_and_daemon_clients(tmp_path):
+    api = TorBoxAPI()
+    store, client = torbox_fixture(tmp_path, api)
+    first = client.download_url(7, 0)
+    class NoNetwork:
+        def request(self, *args, **kwargs):
+            pytest.fail('Playback must reuse the recent ZIP link')
+    assert torrents.TorBox(store, NoNetwork()).download_url(7, 0) == first
+    assert len(api.calls) == 1
+    assert api.calls[0][2]['timeout'] <= 25
+    path = store.directory/'torbox-links.json'
+    if os.name != 'nt': assert path.stat().st_mode & 0o077 == 0
+
+
+def test_expired_file_link_is_refreshed_and_accounts_are_isolated(tmp_path):
+    import time
+    api = TorBoxAPI()
+    store, client = torbox_fixture(tmp_path, api)
+    client.download_url(7, 0)
+    path = store.directory/'torbox-links.json'
+    cache = torrents.read_json(path, {})
+    for entry in cache.values(): entry['expires'] = time.time()-1
+    torrents.write_private(path, cache)
+    client.download_url(7, 0)
+    assert len(api.calls) == 2
+    torrents.configure(store, token='other-account')
+    class OtherAPI:
+        def request(self, *args, **kwargs):
+            return Response({'success': True, 'data': 'https://cdn.example/other.flac'})
+    assert torrents.TorBox(store, OtherAPI()).download_url(7, 0) == 'https://cdn.example/other.flac'
+
+
+def test_expired_signed_url_is_not_reused(tmp_path):
+    import time
+    api = TorBoxAPI(stream_url='https://cdn.example/audio.zip?expire='+str(time.time()-1))
+    _, client = torbox_fixture(tmp_path, api)
+    client.download_url(7, 0)
+    client.download_url(7, 0)
+    assert len(api.calls) == 2

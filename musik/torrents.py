@@ -422,7 +422,7 @@ class TorBox:
             try:
                 response = self.session.request(method, f'{TORBOX_API}/{endpoint}',
                     headers={'Authorization': f'Bearer {self.token}'},
-                    timeout=max(.1, deadline-time.monotonic()), **kwargs)
+                    timeout=min(25, max(.1, deadline-time.monotonic())), **kwargs)
             except requests.RequestException as error:
                 if attempt == 0 and method == 'GET' and deadline-time.monotonic() > .5:
                     time.sleep(.25)
@@ -540,11 +540,41 @@ class TorBox:
         return rows
 
     def download_url(self, torrent_id, file_id):
-        url = self.call('GET', 'torrents/requestdl', params={
+        # Share short-lived links between the TUI (ZIP browsing) and daemon
+        # (playback), without putting signed URLs in tracks or queue history.
+        key = f'{self.account}:{torrent_id}:{file_id}'
+        path = self.store.directory / 'torbox-links.json'
+        cache = read_json(path, {})
+        cached = cache.get(key, {})
+        if cached.get('expires', 0) > time.time() and urlparse(cached.get('url', '')).scheme in ('http', 'https'):
+            return cached['url']
+        url = self.call('GET', 'torrents/requestdl', timeout=60, params={
             'token': self.token, 'torrent_id': torrent_id, 'file_id': file_id,
             'zip_link': 'false', 'torrent_file': 'false', 'redirect': 'false'})
         if not isinstance(url, str) or urlparse(url).scheme not in ('http', 'https'):
             raise RuntimeError('TorBox did not return a playable audio URL')
+        expires = time.time() + 180
+        query = parse_qs(urlparse(url).query)
+        for name in ('expire', 'expires', 'Expires'):
+            try:
+                if name in query: expires = min(expires, float(query[name][0])-30)
+            except (ValueError, TypeError):
+                pass
+        # Private metadata only; media bytes are never written here.
+        with (self.store.directory / 'torbox-links.lock').open('a+') as handle:
+            deadline = time.monotonic()+5
+            while True:
+                try:
+                    lock_exclusive(handle)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline: return url
+                    time.sleep(.01)
+            cache = read_json(path, {})
+            cache = {identity: value for identity, value in cache.items() if value.get('expires', 0) > time.time()}
+            if expires > time.time(): cache[key] = {'url': url, 'expires': expires}
+            cache = dict(sorted(cache.items(), key=lambda item: item[1]['expires'], reverse=True)[:256])
+            write_private(path, cache)
         return url
 
     def stream(self, track):
